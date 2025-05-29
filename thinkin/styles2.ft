@@ -1,0 +1,20 @@
+product Point:
+    x: Int
+    y: Int
+
+union Thing {
+    X: Int
+    Y
+    // Named product
+    Z: product Point2 {
+        x: Int
+        y: Int
+    }
+    // Unnamed product
+    Z: product {
+        x: Int
+        y: Int
+    }
+}
+
+Thing::X(4), Thing::Y, Thing::Z(Point2 { x: 2, y: 3 })

@@ -1,0 +1,40 @@
+let x >
+    code code code
+
+match res -- inferred type
+match res: Result<T,E> -- uninferred type
+Ok(_) > code code code
+Err(_) >
+    code
+    code code
+    code
+
+if a == b >
+    code
+    code code code
+else >
+    code
+    
+
+// Untagged Unions
+union FloatOrInt
+    i64
+    f64
+
+// Tagged Union
+union FloatOrInt
+    Int: i64 
+    Float: f64
+
+// Structured Data
+struct SomeStuff 
+    a: i64, 
+    b: f32,
+
+
+monad List[T] >
+    fn wrap(t: T) >
+        Self::new(t)
+    
+    fn join(llt: List[List[T]]) -> List[T] >
+        llt.flatten()
