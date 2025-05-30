@@ -1,15 +1,58 @@
+#![feature(unboxed_closures)]
+use std::iter;
 use std::marker;
 
-pub type ParseResult<'a, I, O> = Vec<(O, &'a [I])>;
+pub trait Parser {
+    type I;
+    type O;
+    type It: Iterator<Item = (Self::O, Self::I)>;
+    fn bind<F>(self, map: F) -> Bind<Self, F>
+    where
+        Self: Sized,
+    {
+        Bind { inner: self, map }
+    }
+    fn munch(&mut self, source: Self::I) -> Self::It;
+    fn or<T>(self, parser: T) -> Or<Self, T>
+    where
+        Self: Sized,
+    {
+        Or {
+            first: Some(self),
+            second: parser,
+        }
+    }
+}
+
+// The 'strength' comes from Monad Comprehension Syntax:
+// [foo] = Raise { val: foo }
+// sat p = [x | x <- item, p(x)] = item.bind(|x| -> if p(x) { result(x) } else { zero })
+
+pub struct Or<A, B> {
+    first: Option<A>,
+    second: B,
+}
+impl<A: Parser, B: Parser<I = A::I, O = A::O, It = A::It>> Parser for Or<A, B> {
+    type I = A::I;
+    type O = A::O;
+    type It = A::It;
+    fn munch(&mut self, source: Self::I) -> Self::It {
+        match self.first.as_mut() {
+            Some(ref mut p) => p.munch(source),
+            None => self.second.munch(source),
+        }
+    }
+}
 
 pub enum EitherParser<T: Parser, U: Parser<I = T::I, O = T::O>> {
     Left(T),
     Right(U),
 }
-impl<T: Parser, U: Parser<I = T::I, O = T::O>> Parser for EitherParser<T, U> {
+impl<T: Parser, U: Parser<I = T::I, O = T::O, It = T::It>> Parser for EitherParser<T, U> {
     type I = T::I;
     type O = T::O;
-    fn munch<'a>(&mut self, source: &'a [Self::I]) -> ParseResult<'a, Self::I, Self::O> {
+    type It = T::It;
+    fn munch(&mut self, source: Self::I) -> Self::It {
         match self {
             Self::Left(p) => p.munch(source),
             Self::Right(p) => p.munch(source),
@@ -24,36 +67,47 @@ pub struct Bind<T, F> {
 impl<O: Parser<I = T::I>, T: Parser, F: Fn(T::O) -> O> Parser for Bind<T, F> {
     type I = T::I;
     type O = O::O;
-    fn munch<'a>(&mut self, source: &'a [Self::I]) -> ParseResult<'a, Self::I, Self::O> {
+    type It = iter::FlatMap<T::It, O::It, impl FnMut((T::I, T::O)) -> O::O>;
+    fn munch(&mut self, source: Self::I) -> Self::It {
         self.inner
             .munch(source)
             .into_iter()
-            .flat_map(|(i, o)| (self.map)(i).munch(o).into_iter())
-            .collect()
+            .flat_map(|(i, o)| (self.map)(i).munch(o))
     }
 }
+
+pub struct BindFn<T, F> {}
+impl FnMut<()> for Foo {
+    fn call_mut(&mut self) {
+        dbg!("Foo!");
+    }
+}
+
 pub struct Zero<I, O>(marker::PhantomData<I>, marker::PhantomData<O>);
 impl<I, O> Parser for Zero<I, O> {
     type I = I;
     type O = O;
-    fn munch<'a>(&mut self, _source: &'a [Self::I]) -> ParseResult<'a, Self::I, Self::O> {
-        ParseResult::<'a, Self::I, Self::O>::new()
+    type It = iter::Empty<(O, I)>;
+    fn munch(&mut self, _source: Self::I) -> Self::It {
+        //Vec::<(Self::O, &'a [Self::I])>::new().into_iter()
+        iter::empty()
     }
 }
 pub struct Item<I> {
     _marker: marker::PhantomData<I>,
 }
-impl<I: Clone> Parser for Item<I> {
+impl<I: Iterator> Parser for Item<I> {
     type I = I;
-    type O = I;
-    fn munch<'a>(&mut self, source: &'a [Self::I]) -> ParseResult<'a, Self::I, Self::O> {
-        vec![(source[0].clone(), &source[1..])]
+    type O = I::Item;
+    type It = std::option::IntoIter<(I::Item, I)>;
+    fn munch(&mut self, mut source: Self::I) -> Self::It {
+        source.next().map(move |it| (it, source)).into_iter()
     }
 }
 
-pub fn sat<I: Clone>(
-    sat: impl Fn(I) -> bool,
-) -> Bind<Item<I>, impl Fn(I) -> EitherParser<Raise<I, I>, Zero<I, I>>> {
+pub fn sat<I: Iterator>(
+    sat: impl Fn(I::Item) -> bool,
+) -> Bind<Item<I>, impl Fn(I::Item) -> EitherParser<Raise<I, I>, Zero<I, I>>> {
     Item {
         _marker: marker::PhantomData,
     }
@@ -75,21 +129,10 @@ pub struct Raise<I, O> {
 impl<I, O: Clone> Parser for Raise<I, O> {
     type I = I;
     type O = O;
-    fn munch<'a>(&mut self, source: &'a [Self::I]) -> ParseResult<'a, Self::I, Self::O> {
-        vec![(self.val.clone(), source)]
+    type It = iter::Once<(O, I)>;
+    fn munch<'a>(&mut self, source: Self::I) -> Self::It {
+        iter::once((self.val.clone(), source))
     }
-}
-
-pub trait Parser {
-    type I;
-    type O;
-    fn bind<T: Parser, F>(self, map: F) -> Bind<Self, F>
-    where
-        Self: Sized,
-    {
-        Bind { inner: self, map }
-    }
-    fn munch<'a>(&mut self, source: &'a [Self::I]) -> ParseResult<'a, Self::I, Self::O>;
 }
 
 #[cfg(test)]
