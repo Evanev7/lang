@@ -1,158 +1,84 @@
-use std::iter;
-use std::marker;
+use do_notation::{m, Lift};
+use std::marker::PhantomData;
 
-pub trait Parser {
-    type I;
-    type O;
-    type It: Iterator<Item = (Self::O, Self::I)>;
-    fn bind<F>(self, map: F) -> Bind<Self, F>
-    where
-        Self: Sized,
-    {
-        Bind { inner: self, map }
+macro_rules! highlight {
+    ($($tt:tt)*) => {};
+}
+// start simple moron
+// a parser is a function type.
+
+pub struct Parser<T>(Box<dyn for<'a> Fn(&'a str) -> Vec<(T, &'a str)>>);
+impl<T: 'static> Parser<T> {
+    pub fn munch<'a>(&self, source: &'a str) -> Vec<(T, &'a str)> {
+        (self.0)(source)
     }
-    fn munch(&mut self, source: Self::I) -> Self::It;
-    fn or<T>(self, parser: T) -> Or<Self, T>
-    where
-        Self: Sized,
-    {
-        Or {
-            first: Some(self),
-            second: parser,
-        }
+    pub fn map<U>(self: Parser<T>, op: impl Fn(T) -> U + 'static) -> Parser<U> {
+        Parser(Box::new(move |source| {
+            self.munch(source)
+                .into_iter()
+                .map(|(o, i)| (op(o), i))
+                .collect()
+        }))
+    }
+    pub fn and_then<U: 'static>(
+        self: Parser<T>,
+        op: impl Fn(T) -> Parser<U> + 'static,
+    ) -> Parser<U> {
+        self.map(op).flatten()
     }
 }
-
-// The 'strength' comes from Monad Comprehension Syntax:
-// [foo] = Raise { val: foo }
-// sat p = [x | x <- item, p(x)] = item.bind(|x| -> if p(x) { result(x) } else { zero })
-
-pub struct Or<A, B> {
-    first: Option<A>,
-    second: B,
-}
-impl<A: Parser, B: Parser<I = A::I, O = A::O, It = A::It>> Parser for Or<A, B> {
-    type I = A::I;
-    type O = A::O;
-    type It = A::It;
-    fn munch(&mut self, source: Self::I) -> Self::It {
-        match self.first.as_mut() {
-            Some(ref mut p) => p.munch(source),
-            None => self.second.munch(source),
-        }
+impl<T: 'static> Parser<Parser<T>> {
+    pub fn flatten(self) -> Parser<T> {
+        Parser(Box::new(move |source| {
+            self.munch(source)
+                .into_iter()
+                .flat_map(|(o, i)| o.munch(i))
+                .collect()
+        }))
     }
 }
 
-pub enum EitherParser<T: Parser, U: Parser<I = T::I, O = T::O>> {
-    Left(T),
-    Right(U),
-}
-impl<T: Parser, U: Parser<I = T::I, O = T::O, It = T::It>> Parser for EitherParser<T, U> {
-    type I = T::I;
-    type O = T::O;
-    type It = T::It;
-    fn munch(&mut self, source: Self::I) -> Self::It {
-        match self {
-            Self::Left(p) => p.munch(source),
-            Self::Right(p) => p.munch(source),
-        }
+impl<T: 'static + Clone> Lift<T> for Parser<T> {
+    fn lift(a: T) -> Self {
+        Self(Box::new(move |source| vec![(a.clone(), source)]))
     }
 }
 
-pub struct Bind<T, F> {
-    inner: T,
-    map: F,
+pub fn zero<T>() -> Parser<T> {
+    Parser(Box::new(move |_| vec![]))
 }
-impl<O: Parser<I = T::I>, T: Parser, F: Fn(T::O) -> O> Parser for Bind<T, F> {
-    type I = T::I;
-    type O = O::O;
-    type It = _;
-    fn munch(&mut self, source: Self::I) -> Self::It {
-        BindIter {
-            iter: self.inner.munch(source),
-        } // Iter<Item=(a,b)> where f(a): Parser<I = b>. we want to return an iterator over elements a.munch(b)
+
+pub fn guard(if_only: bool) -> Parser<char> {
+    if if_only {
+        Lift::lift(' ')
+    } else {
+        zero()
     }
 }
 
-pub struct BindIter<T> {
-    iter: T,
-}
-impl<T> Iterator for BindIter<T>
-where
-    T: Iterator<Item = (A, B)>,
-    A: Parser,
-{
-    type Item = _;
-    fn next(&mut self) -> Option<Self::Item> {}
+pub fn item() -> Parser<char> {
+    Parser(Box::new(move |source| match source.chars().next() {
+        Some(c) => vec![(c, &source[c.len_utf8()..])],
+        None => vec![],
+    }))
 }
 
-pub struct Zero<I, O>(marker::PhantomData<I>, marker::PhantomData<O>);
-impl<I, O> Parser for Zero<I, O> {
-    type I = I;
-    type O = O;
-    type It = iter::Empty<(O, I)>;
-    fn munch(&mut self, _source: Self::I) -> Self::It {
-        //Vec::<(Self::O, &'a [Self::I])>::new().into_iter()
-        iter::empty()
-    }
-}
-pub struct Item<I> {
-    _marker: marker::PhantomData<I>,
-}
-impl<I: Iterator> Parser for Item<I> {
-    type I = I;
-    type O = I::Item;
-    type It = std::option::IntoIter<(I::Item, I)>;
-    fn munch(&mut self, mut source: Self::I) -> Self::It {
-        source.next().map(move |it| (it, source)).into_iter()
+pub fn sat(p: impl Fn(char) -> bool + 'static) -> Parser<char> {
+    m! {
+        x <- item();
+        guard(p(x));
+        return x;
     }
 }
 
-pub fn sat<I>(
-    sat_fn: impl Fn(I::Item) -> bool,
-) -> Bind<Item<I>, impl Fn(I::Item) -> EitherParser<Raise<I, I::Item>, Zero<I, I::Item>>>
-where
-    I: Iterator,
-    I::Item: Clone,
-{
-    Item {
-        _marker: marker::PhantomData,
-    }
-    .bind(move |item: I::Item| {
-        if sat_fn(item.clone()) {
-            EitherParser::Left(Raise {
-                val: item,
-                _marker: marker::PhantomData,
+pub fn parse_string<'a>(s: String) -> Parser<String> {
+    match s.chars().next() {
+        None => Lift::lift("".to_owned()),
+        Some(c) => (sat(move |it| it == c)).and_then(move |_| {
+            (parse_string(s[c.len_utf8()..].to_owned())).and_then({
+                let value = s.clone();
+                move |_| do_notation::Lift::lift(value)
             })
-        } else {
-            EitherParser::Right(Zero(marker::PhantomData, marker::PhantomData))
-        }
-    })
-}
-pub struct Raise<I, O> {
-    val: O,
-    _marker: marker::PhantomData<I>,
-}
-impl<I, O: Clone> Parser for Raise<I, O> {
-    type I = I;
-    type O = O;
-    type It = iter::Once<(O, I)>;
-    fn munch<'a>(&mut self, source: Self::I) -> Self::It {
-        iter::once((self.val.clone(), source))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::*;
-    use std::array::IntoIter;
-
-    #[test]
-    fn test() {
-        let x = 14;
-        let mut letter = sat::<IntoIter<u8, 3>>(|it: u8| it < x);
-        dbg!(letter.munch([12, 139, 149].into_iter()));
-        dbg!(letter.munch([139, 149].into_iter()));
-        dbg!(std::mem::size_of_val(&letter));
+        }),
     }
 }
