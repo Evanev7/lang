@@ -1,4 +1,3 @@
-#![feature(unboxed_closures)]
 use std::iter;
 use std::marker;
 
@@ -67,20 +66,24 @@ pub struct Bind<T, F> {
 impl<O: Parser<I = T::I>, T: Parser, F: Fn(T::O) -> O> Parser for Bind<T, F> {
     type I = T::I;
     type O = O::O;
-    type It = iter::FlatMap<T::It, O::It, impl FnMut((T::I, T::O)) -> O::O>;
+    type It = _;
     fn munch(&mut self, source: Self::I) -> Self::It {
-        self.inner
-            .munch(source)
-            .into_iter()
-            .flat_map(|(i, o)| (self.map)(i).munch(o))
+        BindIter {
+            iter: self.inner.munch(source),
+        } // Iter<Item=(a,b)> where f(a): Parser<I = b>. we want to return an iterator over elements a.munch(b)
     }
 }
 
-pub struct BindFn<T, F> {}
-impl FnMut<()> for Foo {
-    fn call_mut(&mut self) {
-        dbg!("Foo!");
-    }
+pub struct BindIter<T> {
+    iter: T,
+}
+impl<T> Iterator for BindIter<T>
+where
+    T: Iterator<Item = (A, B)>,
+    A: Parser,
+{
+    type Item = _;
+    fn next(&mut self) -> Option<Self::Item> {}
 }
 
 pub struct Zero<I, O>(marker::PhantomData<I>, marker::PhantomData<O>);
@@ -105,14 +108,18 @@ impl<I: Iterator> Parser for Item<I> {
     }
 }
 
-pub fn sat<I: Iterator>(
-    sat: impl Fn(I::Item) -> bool,
-) -> Bind<Item<I>, impl Fn(I::Item) -> EitherParser<Raise<I, I>, Zero<I, I>>> {
+pub fn sat<I>(
+    sat_fn: impl Fn(I::Item) -> bool,
+) -> Bind<Item<I>, impl Fn(I::Item) -> EitherParser<Raise<I, I::Item>, Zero<I, I::Item>>>
+where
+    I: Iterator,
+    I::Item: Clone,
+{
     Item {
         _marker: marker::PhantomData,
     }
-    .bind::<Item<I>, _>(move |item: I| {
-        if sat(item.clone()) {
+    .bind(move |item: I::Item| {
+        if sat_fn(item.clone()) {
             EitherParser::Left(Raise {
                 val: item,
                 _marker: marker::PhantomData,
@@ -137,14 +144,15 @@ impl<I, O: Clone> Parser for Raise<I, O> {
 
 #[cfg(test)]
 mod test {
-    use crate::{sat, Parser};
+    use crate::*;
+    use std::array::IntoIter;
 
     #[test]
     fn test() {
         let x = 14;
-        let mut letter = sat(|it: u8| it < x);
-        dbg!(letter.munch(&[12, 139, 149]));
-        dbg!(letter.munch(&[139, 149]));
+        let mut letter = sat::<IntoIter<u8, 3>>(|it: u8| it < x);
+        dbg!(letter.munch([12, 139, 149].into_iter()));
+        dbg!(letter.munch([139, 149].into_iter()));
         dbg!(std::mem::size_of_val(&letter));
     }
 }

@@ -3,22 +3,16 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      rust-overlay,
     }:
     let
       system = "x86_64-linux";
-      overlays = [ (import rust-overlay) ];
+      overlays = [ ];
       pkgs = import nixpkgs {
         inherit system overlays;
       };
@@ -27,7 +21,10 @@
     {
       devShells.${system}.default = mkShell rec {
         buildInputs = [
-          (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default))
+          cargo
+          rustc
+          rust-analyzer
+          rustfmt
           bacon
           clippy
 
