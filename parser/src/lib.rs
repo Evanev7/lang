@@ -1,84 +1,130 @@
-use do_notation::{m, Lift};
-use std::marker::PhantomData;
-
 macro_rules! highlight {
     ($($tt:tt)*) => {};
 }
-// start simple moron
-// a parser is a function type.
 
-pub struct Parser<T>(Box<dyn for<'a> Fn(&'a str) -> Vec<(T, &'a str)>>);
-impl<T: 'static> Parser<T> {
-    pub fn munch<'a>(&self, source: &'a str) -> Vec<(T, &'a str)> {
-        (self.0)(source)
-    }
-    pub fn map<U>(self: Parser<T>, op: impl Fn(T) -> U + 'static) -> Parser<U> {
-        Parser(Box::new(move |source| {
-            self.munch(source)
-                .into_iter()
-                .map(|(o, i)| (op(o), i))
-                .collect()
-        }))
-    }
-    pub fn and_then<U: 'static>(
-        self: Parser<T>,
-        op: impl Fn(T) -> Parser<U> + 'static,
-    ) -> Parser<U> {
-        self.map(op).flatten()
-    }
-}
-impl<T: 'static> Parser<Parser<T>> {
-    pub fn flatten(self) -> Parser<T> {
-        Parser(Box::new(move |source| {
-            self.munch(source)
-                .into_iter()
-                .flat_map(|(o, i)| o.munch(i))
-                .collect()
-        }))
-    }
+highlight! {
+    fn main() { x = 1, y = 2, print(x) }
 }
 
-impl<T: 'static + Clone> Lift<T> for Parser<T> {
-    fn lift(a: T) -> Self {
-        Self(Box::new(move |source| vec![(a.clone(), source)]))
+#[derive(Debug)]
+pub struct Token<'a> {
+    pub kind: TokenType,
+    pub source: &'a str,
+    //pub line: u32,
+    //pub column: u32,
+}
+
+impl<'a> Token<'a> {
+    pub fn single(source: &'a str) -> Option<Token<'a>> {
+        use TokenType::*;
+
+        match source.chars().next()? {
+            '{' => Some(LCurly),
+            '}' => Some(RCurly),
+            '(' => Some(LParen),
+            ')' => Some(RParen),
+            ':' => Some(Colon),
+            _ => None,
+        }
+        .map(|kind| Token {
+            kind,
+            source: &source[..1],
+        })
     }
-}
+    pub fn multi(source: &'a str) -> Option<Token<'a>> {
+        use TokenType::*;
 
-pub fn zero<T>() -> Parser<T> {
-    Parser(Box::new(move |_| vec![]))
-}
-
-pub fn guard(if_only: bool) -> Parser<char> {
-    if if_only {
-        Lift::lift(' ')
-    } else {
-        zero()
+        match source {
+            it if it.starts_with("let") => return Some(KWLet.on(&source[..3])),
+            it if it.starts_with("fn") => return Some(KWFunc.on(&source[..2])),
+            it if it.starts_with("return") => return Some(KWRet.on(&source[..6])),
+            _ => {}
+        };
+        let mut iter = source.char_indices().peekable();
+        let mut lock = None;
+        while let Some((_i, c)) = iter.peek() {
+            match c {
+                '0'..='9' if lock == None => lock = Some(LitNum),
+                '0'..='9' if lock == Some(LitNum) => {}
+                'a'..='z' if lock == None => lock = Some(LitId),
+                'a'..='z' if lock == Some(LitId) => {}
+                'A'..='Z' if lock == None => lock = Some(LitId),
+                'A'..='Z' if lock == Some(LitId) => {}
+                '_' if lock == Some(LitId) => {}
+                ' ' if lock == None => lock = Some(Space),
+                ' ' if lock == Some(Space) => {}
+                _ => break,
+            }
+            iter.next();
+        }
+        iter.next()
+            .zip(lock)
+            .map(|((i, _c), tt)| tt.on(&source[..i]))
     }
-}
-
-pub fn item() -> Parser<char> {
-    Parser(Box::new(move |source| match source.chars().next() {
-        Some(c) => vec![(c, &source[c.len_utf8()..])],
-        None => vec![],
-    }))
-}
-
-pub fn sat(p: impl Fn(char) -> bool + 'static) -> Parser<char> {
-    m! {
-        x <- item();
-        guard(p(x));
-        return x;
+    pub fn next(source: &'a str) -> Option<Token<'a>> {
+        Self::single(source).or_else(|| Self::multi(source))
     }
 }
 
-pub fn parse_string<'a>(s: String) -> Parser<String> {
-    match s.chars().next() {
-        None => Lift::lift("".to_owned()),
-        Some(c) => (sat(move |it| it == c)).and_then(move |_| {
-            (parse_string(s[c.len_utf8()..].to_owned())).and_then({
-                let value = s.clone();
-                move |_| do_notation::Lift::lift(value)
-            })
-        }),
+pub fn parse<'a>(source: &'a str) -> Vec<Token<'a>> {
+    vec![]
+}
+
+#[derive(Debug, PartialEq)]
+#[non_exhaustive]
+pub enum TokenType {
+    LCurly,
+    RCurly,
+    LParen,
+    RParen,
+    Space,
+    Comma,
+    Colon,
+    LitNum,
+    LitId,
+    KWLet,
+    KWRet,
+    KWFunc,
+}
+
+impl TokenType {
+    fn on<'a>(self, source: &'a str) -> Token<'a> {
+        Token { kind: self, source }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test() {
+        dbg!("hiiii");
+        dbg!(parse("{ }"));
+    }
+
+    #[test]
+    fn tost() {
+        dbg!(":(");
+    }
+}
+
+highlight! {
+    task IntegrateMotion {
+        input {
+            positions: [Vec3]
+            velocity: [Vec3]
+            forces: [Vec3]
+            coe: [float]
+        }
+        params {
+            dt: float
+        }
+
+        stage detect_collisions(&positions, dt) -> collision_pairs
+        stage effects_collisions(..) -> ..
+
+        flow {
+
+        }
     }
 }
