@@ -27,7 +27,7 @@
           rustfmt
           bacon
           clippy
-
+          gcc
           python3
         ];
 

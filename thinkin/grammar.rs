@@ -1,0 +1,3 @@
+lexer! {
+    Declaration = Ident ':' Type '='
+}

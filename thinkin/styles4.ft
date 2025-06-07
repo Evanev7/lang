@@ -1,0 +1,201 @@
+// Gemini Pro 2.5 helped me with this one
+
+// --- Data Type Definitions (assumed from previous examples) ---
+data Vec2 { u: float, v: float }
+data Vec3 { x: float, y: float, z: float }
+data Vec4 { x: float, y: float, z: float, w: float }
+data Mat4 { /* ... 16 floats ... */ }
+
+data Vertex {
+    position: Vec3,
+    normal: Vec3,
+    texcoord: Vec2,
+    color: Vec4
+}
+
+data Uniforms {
+    modelViewProjectionMatrix: Mat4,
+    cameraPosition: Vec3,
+    lightDirection: Vec3
+    // ... other global parameters
+}
+
+data Framebuffer {
+    colorTarget: Texture2D<RGBA8>, // Example: 8-bit RGBA texture
+    depthTarget: Texture2D<Depth24Stencil8> // Example: 24-bit depth, 8-bit stencil
+}
+
+// --- The Graphics Pipeline Task ---
+
+pipeline_task RenderScene (
+    // Global resources provided when the pipeline task is invoked
+    scene_uniforms: Uniforms,
+    material_textures: {
+        albedo: Texture2D,
+        normal_map: Texture2D optional, // Optional texture
+        metallic_roughness: Texture2D
+    },
+    shared_sampler: SamplerState // e.g., for trilinear filtering
+
+)
+// Defines the input geometry for a specific draw call using this pipeline
+inputs {
+    // 'vertex_data' is the primary collection for vectorization focus at the vertex stage.
+    // The compiler is strongly hinted to use SoA for these specific fields.
+    vertex_data: [Vertex]
+        layout_preference (SoA: position, normal, texcoord),
+    index_data: [uint32] optional // Optional index buffer
+}
+// Defines the output render targets for this pipeline
+outputs {
+    target_framebuffer: Framebuffer
+}
+{
+    // STAGE 1: Vertex Shader
+    // Consumes 'Vertex' from 'vertex_data', produces 'Varyings'
+    // The compiler understands 'v' is an element from 'vertex_data' and can
+    // optimize access based on the 'layout_preference'.
+    stage VertexProcessor (
+        in v: Vertex from vertex_data, // 'v' is an element
+        uniforms: scene_uniforms        // Access to global uniforms
+    ) -> struct Varyings { // Output structure for data passed to fragment shader
+        clip_space_pos: Vec4,
+        world_space_pos: Vec3,
+        world_space_normal: Vec3,
+        uv: Vec2
+        // Compiler can choose an optimal layout for these 'Varyings'
+        // for interpolation and fragment shader input.
+    }
+    {
+        // Shader-like code. This could be a separate shader function call too.
+        let world_pos_h = /* modelMatrix */ vec4(v.position, 1.0); // Assuming modelMatrix is part of uniforms or pre-multiplied
+        out.clip_space_pos = uniforms.modelViewProjectionMatrix * world_pos_h;
+        out.world_space_pos = world_pos_h.xyz;
+        out.world_space_normal = normalize(/* transform normal */ v.normal);
+        out.uv = v.texcoord;
+        return out;
+    }
+
+    // Intermediate data stream (explicitly named for clarity)
+    // This represents the collection of 'Varyings' output by the VertexProcessor.
+    let processed_vertices: [Varyings] = VertexProcessor.output;
+
+    // STAGE 2: Rasterization & Fragment Generation
+    // Consumes 'processed_vertices' (specifically 'clip_space_pos' for rasterization)
+    // and 'index_data', produces 'FragmentData' (interpolated varyings + screen info).
+    // This is more of a configuration for a fixed-function unit, but describes data flow.
+    stage Rasterizer (
+        in vertices_to_raster: processed_vertices,
+        indices: index_data, // Optional, if not provided, assumes non-indexed draw
+        config: {
+            topology: TriangleList, // Or LineList, PointList, etc.
+            cull_mode: BackFace,
+            depth_clip_enable: true,
+            viewport: scene_uniforms.viewport_rect // Assuming viewport is in uniforms
+            // ... other rasterizer state
+        }
+    ) -> struct FragmentData { // Data available per fragment
+        // Interpolated values from 'Varyings'
+        interpolated_world_pos: Vec3,
+        interpolated_world_normal: Vec3,
+        interpolated_uv: Vec2,
+        // System-generated values
+        frag_coord: Vec4, // (x, y, depth, 1/w)
+        is_front_facing: bool
+        // Compiler understands this data is "wide" (many fragments)
+        // and will optimize for parallel fragment processing.
+    };
+    // The implementation of interpolation is handled by the system based on 'Varyings'.
+
+    let fragments: [FragmentData] = Rasterizer.output;
+
+    // STAGE 3: Fragment Shader
+    // Consumes 'FragmentData', textures, uniforms, produces 'PixelColorOutput'.
+    stage FragmentProcessor (
+        in frag: FragmentData from fragments, // 'frag' is an element
+        uniforms: scene_uniforms,
+        textures: material_textures,
+        sampler: shared_sampler
+    ) -> struct PixelOutput {
+        color: Vec4,
+        // Depth can be written implicitly from frag.clip_space_pos.z after perspective divide,
+        // or explicitly if the shader modifies depth.
+        // For simplicity, we'll assume implicit depth from rasterized Z.
+    }
+    {
+        let base_color = sample(textures.albedo, frag.interpolated_uv, sampler);
+        let normal_sample = if textures.normal_map exists {
+            sample(textures.normal_map, frag.interpolated_uv, sampler).xyz * 2.0 - 1.0;
+            // ... transform normal from tangent to world space ...
+        } else {
+            frag.interpolated_world_normal;
+        };
+
+        // Basic Lambertian lighting
+        let light_intensity = max(0.0, dot(normalize(normal_sample), normalize(uniforms.lightDirection)));
+        let final_color_rgb = base_color.rgb * light_intensity;
+
+        out.color = vec4(final_color_rgb, base_color.a);
+        return out;
+    }
+
+    let shaded_pixels: [PixelOutput] = FragmentProcessor.output;
+
+    // STAGE 4: Output Merger / Blend State
+    // Consumes 'PixelOutput', writes to 'target_framebuffer'.
+    // Configures depth/stencil tests, blending.
+    stage OutputMerger (
+        in pixel: PixelOutput from shaded_pixels,
+        // 'frag_data' provides access to rasterized depth for depth test
+        frag_data: FragmentData from fragments,
+        target: target_framebuffer,
+        config: {
+            depth_test: {
+                enable: true,
+                function: LessEqual,
+                write_enable: true
+            },
+            stencil_test: { enable: false /* ... */ },
+            blend_state: {
+                enable: false, // Or true with specific blend funcs
+                // color_op: Add, color_src_factor: SrcAlpha, color_dst_factor: OneMinusSrcAlpha,
+                // alpha_op: Add, alpha_src_factor: One, alpha_dst_factor: Zero
+            }
+        }
+    )
+    {
+        // Logic for depth/stencil test and blend happens implicitly based on config
+        // and 'pixel.color' and 'frag_data.frag_coord.z' (for depth).
+        // The 'write_to' clause might be implicit if 'target' is specified.
+        write pixel.color to target.colorTarget at frag_data.frag_coord.xy;
+        // Depth is written from frag_data.frag_coord.z (or modified depth if shader wrote it)
+        // to target.depthTarget.
+    }
+}
+
+
+
+// --- Somewhere in your main rendering loop ---
+var my_uniforms: Uniforms = ...;
+var my_textures: { albedo: ..., normal_map: ..., ... } = ...;
+var my_sampler: SamplerState = ...;
+var my_framebuffer: Framebuffer = ...;
+
+// For each object/draw call
+var object_vertices: [Vertex] = load_model_vertices(...);
+var object_indices: [uint32] = load_model_indices(...);
+
+// Execute the defined pipeline task
+// The compiler would have already processed 'RenderScene' into an optimized executable form.
+// This 'execute' call binds the actual data.
+execute RenderScene with
+    scene_uniforms = my_uniforms,
+    material_textures = my_textures,
+    shared_sampler = my_sampler,
+    inputs = {
+        vertex_data: object_vertices,
+        index_data: object_indices
+    },
+    outputs = {
+        target_framebuffer: my_framebuffer
+    };

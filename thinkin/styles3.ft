@@ -1,0 +1,26 @@
+
+let add: (u32, u32) -> u32 = Args { a, b } -> a + b
+
+
+
+let app: () -> Widget = a {} ->
+    # classy function calls? 
+    [
+        margin(12,31)
+        | panel(14,45)
+        | row [
+            text
+        ] 
+        item(),
+        item(),
+    ] column
+
+grabby functions: functions missing arguments will first try grab left, then grab right, if the types match.
+the resolver checks for types Args:add, (L, Args):add then (Args, R):add  -- left associative always?
+
+
+3.1 
+> add(12) 
+> times(14) 
+> plus(6) 
+> sqrt
