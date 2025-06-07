@@ -7,6 +7,10 @@ highlight! {
     fn main() { x = 1, y = 2, print(x) }
 }
 
+pub enum ParseError {
+    Null,
+}
+
 #[derive(Debug)]
 pub struct Token<'a> {
     pub kind: TokenType,
@@ -15,60 +19,34 @@ pub struct Token<'a> {
     //pub column: u32,
 }
 
-impl<'a> Token<'a> {
-    pub fn single(source: &'a str) -> Option<Token<'a>> {
-        use TokenType::*;
+pub fn next<'a>(source: &'a str) -> Option<(Token<'a>, &'a str)> {
+    use TokenType::*;
+    let mut iter = source.char_indices().peekable();
 
-        match source.chars().next()? {
-            '{' => Some(LCurly),
-            '}' => Some(RCurly),
-            '(' => Some(LParen),
-            ')' => Some(RParen),
-            ':' => Some(Colon),
-            _ => None,
+    iter.next().and_then(|(i, c)| match c {
+        '{' => Some(LCurly.with(source, i..i + 1)),
+        '}' => Some(RCurly.with(source, i..i + 1)),
+        '(' => Some(LParen.with(source, i..i + 1)),
+        ')' => Some(RParen.with(source, i..i + 1)),
+        ':' => Some(Colon.with(source, i..i + 1)),
+        '0'..='9' => {
+            let mut ct = 0;
+            while let Some(_) = iter.next_if(|(_i, c)| {
+                ct += 1;
+                matches!(c, '0'..='9')
+            }) {}
+            Some(LitNum.with(source, i..i + ct))
         }
-        .map(|kind| Token {
-            kind,
-            source: &source[..1],
-        })
-    }
-    pub fn multi(source: &'a str) -> Option<Token<'a>> {
-        use TokenType::*;
-
-        match source {
-            it if it.starts_with("let") => return Some(KWLet.on(&source[..3])),
-            it if it.starts_with("fn") => return Some(KWFunc.on(&source[..2])),
-            it if it.starts_with("return") => return Some(KWRet.on(&source[..6])),
-            _ => {}
-        };
-        let mut iter = source.char_indices().peekable();
-        let mut lock = None;
-        while let Some((_i, c)) = iter.peek() {
-            match c {
-                '0'..='9' if lock == None => lock = Some(LitNum),
-                '0'..='9' if lock == Some(LitNum) => {}
-                'a'..='z' if lock == None => lock = Some(LitId),
-                'a'..='z' if lock == Some(LitId) => {}
-                'A'..='Z' if lock == None => lock = Some(LitId),
-                'A'..='Z' if lock == Some(LitId) => {}
-                '_' if lock == Some(LitId) => {}
-                ' ' if lock == None => lock = Some(Space),
-                ' ' if lock == Some(Space) => {}
-                _ => break,
-            }
-            iter.next();
+        'a'..='z' | 'A'..='Z' => {
+            let mut ct = 0;
+            while let Some(_) = iter.next_if(|(_i, c)| {
+                ct += 1;
+                matches!(c, 'a'..='z' | 'A'..='Z' | '_')
+            }) {}
+            Some(LitNum.with(source, i..i + ct))
         }
-        iter.next()
-            .zip(lock)
-            .map(|((i, _c), tt)| tt.on(&source[..i]))
-    }
-    pub fn next(source: &'a str) -> Option<Token<'a>> {
-        Self::single(source).or_else(|| Self::multi(source))
-    }
-}
-
-pub fn parse<'a>(source: &'a str) -> Vec<Token<'a>> {
-    vec![]
+        _ => None,
+    })
 }
 
 #[derive(Debug, PartialEq)]
@@ -91,6 +69,9 @@ pub enum TokenType {
 impl TokenType {
     fn on<'a>(self, source: &'a str) -> Token<'a> {
         Token { kind: self, source }
+    }
+    fn with<'a>(self, source: &'a str, range: std::ops::Range<usize>) -> (Token<'a>, &'a str) {
+        (self.on(&source[range.clone()]), &source[range.end..])
     }
 }
 
