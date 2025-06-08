@@ -11,7 +11,7 @@ pub enum ParseError {
     Null,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Token<'a> {
     pub kind: TokenType,
     pub source: &'a str,
@@ -19,34 +19,79 @@ pub struct Token<'a> {
     //pub column: u32,
 }
 
-pub fn next<'a>(source: &'a str) -> Option<(Token<'a>, &'a str)> {
+pub fn lex<'a>(source: &'a str) -> Vec<Token<'a>> {
     use TokenType::*;
     let mut iter = source.char_indices().peekable();
-
-    iter.next().and_then(|(i, c)| match c {
-        '{' => Some(LCurly.with(source, i..i + 1)),
-        '}' => Some(RCurly.with(source, i..i + 1)),
-        '(' => Some(LParen.with(source, i..i + 1)),
-        ')' => Some(RParen.with(source, i..i + 1)),
-        ':' => Some(Colon.with(source, i..i + 1)),
-        '0'..='9' => {
-            let mut ct = 0;
-            while let Some(_) = iter.next_if(|(_i, c)| {
-                ct += 1;
-                matches!(c, '0'..='9')
-            }) {}
-            Some(LitNum.with(source, i..i + ct))
-        }
-        'a'..='z' | 'A'..='Z' => {
-            let mut ct = 0;
-            while let Some(_) = iter.next_if(|(_i, c)| {
-                ct += 1;
-                matches!(c, 'a'..='z' | 'A'..='Z' | '_')
-            }) {}
-            Some(LitNum.with(source, i..i + ct))
-        }
-        _ => None,
-    })
+    let mut out = vec![];
+    while let Some((i, c)) = iter.next() {
+        out.push(match c {
+            '{' => LCurly.on(&source[i..i + 1]),
+            '}' => RCurly.on(&source[i..i + 1]),
+            '(' => LParen.on(&source[i..i + 1]),
+            ')' => RParen.on(&source[i..i + 1]),
+            ':' => Colon.on(&source[i..i + 1]),
+            '0'..='9' => {
+                let mut ct = 1;
+                // Match [0-9]*
+                while let Some(_) = iter.next_if(|(_i, c)| matches!(c, '0'..='9')) {
+                    ct += 1;
+                }
+                // Match .?
+                if let Some((_i, '.')) = iter.peek() {
+                    ct += 1;
+                    iter.next();
+                }
+                while let Some(_) = iter.next_if(|(_i, c)| matches!(c, '0'..='9')) {
+                    ct += 1;
+                }
+                LitNum.on(&source[i..i + ct])
+            }
+            '"' => {
+                let mut ct = 1;
+                while iter.next_if(|(_i, c)| !matches!(c, '"')).is_some() {
+                    ct += 1
+                }
+                if let Some((_i, '"')) = iter.peek() {
+                    iter.next();
+                    ct += 1;
+                    LitStr.on(&source[i..i + ct])
+                } else {
+                    Unknown.on(&source[i..i + ct])
+                }
+            }
+            'a'..='z' | 'A'..='Z' => {
+                let mut ct = 1;
+                while iter
+                    .next_if(|(_i, c)| matches!(c, 'a'..='z' | 'A'..='Z' | '_'))
+                    .is_some()
+                {
+                    ct += 1;
+                }
+                match &source[i..i + ct] {
+                    "fn" => KWFunc.on(&source[i..i + ct]),
+                    "let" => KWLet.on(&source[i..i + ct]),
+                    "return" => KWRet.on(&source[i..i + ct]),
+                    _ => LitId.on(&source[i..i + ct]),
+                }
+            }
+            ',' | '\n' | ' ' | '\t' | '\r' => {
+                let mut contains_comma = matches!(c, ',' | '\n');
+                let mut ct = 1;
+                while let Some(_) = iter.next_if(|(_i, c)| matches!(c, ' ' | '\t' | '\r')) {
+                    ct += 1;
+                    contains_comma |= matches!(c, ',' | '\n');
+                }
+                if contains_comma {
+                    Comma.on(&source[i..i + ct])
+                } else {
+                    Sep.on(&source[i..i + ct])
+                }
+            }
+            _ => Unknown.on(&source[i..i + 1]),
+        });
+    }
+    out.push(EOF.on(&""));
+    out
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,22 +101,26 @@ pub enum TokenType {
     RCurly,
     LParen,
     RParen,
-    Space,
-    Comma,
     Colon,
+
+    Sep,
+    Comma,
+
     LitNum,
     LitId,
+    LitStr,
+
     KWLet,
     KWRet,
     KWFunc,
+
+    Unknown,
+    EOF,
 }
 
 impl TokenType {
     fn on<'a>(self, source: &'a str) -> Token<'a> {
         Token { kind: self, source }
-    }
-    fn with<'a>(self, source: &'a str, range: std::ops::Range<usize>) -> (Token<'a>, &'a str) {
-        (self.on(&source[range.clone()]), &source[range.end..])
     }
 }
 
@@ -80,8 +129,40 @@ mod test {
     use super::*;
     #[test]
     fn test() {
-        dbg!("hiiii");
-        dbg!(parse("{ }"));
+        dbg!(lex("{ }"));
+        dbg!(lex("
+        fn main() {
+            print(23.14)
+        }
+        "));
+    }
+    #[test]
+    fn int_lits() {
+        assert_eq!(
+            lex("12"),
+            vec![TokenType::LitNum.on("12"), TokenType::EOF.on("")]
+        );
+        assert_eq!(
+            lex("23.14"),
+            vec![TokenType::LitNum.on("23.14"), TokenType::EOF.on("")]
+        );
+        assert_eq!(
+            lex("23."),
+            vec![TokenType::LitNum.on("23."), TokenType::EOF.on("")]
+        );
+        // I think we're not using .12
+        assert_eq!(
+            lex(".12"),
+            vec![
+                TokenType::Unknown.on("."),
+                TokenType::LitNum.on("12"),
+                TokenType::EOF.on("")
+            ]
+        );
+        assert_eq!(
+            lex("."),
+            vec![TokenType::Unknown.on("."), TokenType::EOF.on("")]
+        );
     }
 }
 
