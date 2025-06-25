@@ -1,7 +1,9 @@
 [package]
-name = "riveted"
+name = "styx-rs"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+crossbeam-channel = "0.5.15"
+crossbeam-utils = "0.8.21"
 petgraph = "0.8.2"
