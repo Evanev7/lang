@@ -1,0 +1,13 @@
+fn<T> T* Arena_alloc(Arena arena) {
+        if (size * align) {
+                USize offset = ((arena.used / T::ALIGN) + 1) * T::ALIGN;
+                if (arena.capacity > arena.used + offset) {
+                        arena.used = offset + T::SIZE;
+                        return Ptr_with_offset(arena.buf, offset);
+                } else {
+                        return None;
+                };
+        } else { 
+                return None;
+        }
+}

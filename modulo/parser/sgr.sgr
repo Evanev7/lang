@@ -1,0 +1,11 @@
+scope {
+        _ -> "scope" SigGrammar_Dag, "in" SigGrammar_Scope -> '}';
+        SigGrammar_Dag -> -> '}';
+        SigGrammar_Scope -> -> '}';
+}
+
+in SigGrammar_Dag {
+        ScopeDecl = ScopeName "->" ("", ScopeExpr+) "->" ScopeSyncSet;
+        ScopeExpr = (CHAR+ ScopeName)*;
+        ScopeSyncSet = CHAR+ (',' CHAR+);
+}
