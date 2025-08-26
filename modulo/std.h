@@ -2,6 +2,7 @@
 #define CPLUS_MOD_STDP
 
 // ================DEBUG================ //
+
 #ifndef STDP_DEBUG
   #ifndef NDEBUG
     #define STDP_DEBUG 1
@@ -10,8 +11,7 @@
   #endif
 #endif
 
-
-// ================
+// ============BASIC TYPES============== //
 
 #include <stdint.h>
 #include <stdio.h>
@@ -45,17 +45,17 @@ typedef struct String {
         U1List inner;
 } String;
 
-typedef enum std_LogLevel {
+typedef enum LogLevel {
         STD_LOG_ERROR = 0,
         STD_LOG_WARN,
         STD_LOG_INFO,
         STD_LOG_DEBUG,
         STD_LOG_TRACE,
-} std_LogLevel;
+} LogLevel;
 
 typedef void* Ptr;
 
-String std_String_from_cstr(char* str) {
+String String_from_cstr(char* str) {
         if (str == NULL) {
                 return (String) {0};
         }
@@ -63,24 +63,28 @@ String std_String_from_cstr(char* str) {
         while (str[size] != '\0') {
                 size += 1;
         }
-        return (String) { .inner = (U1List) { .size= size, .capacity= size + 1, .buf=(U1*)str } };
+        return (String) { .inner = (U1List) { .size= size, .capacity= size + 1, .buf=(U1*)(unsigned char*)str } };
 }
 
-void std_String_print(String str) {
+void String_print(String str) {
         printf("%s\n", str.inner.buf);
 }
 
-void std_String_print_debug(String str) {
-        printf("String(size=%lu,capacity=%lu,buf=%s)\n", str.inner.size, str.inner.capacity, str.inner.buf);
+void String_print_debug(String str) {
+        printf("String(size=%lu,capacity=%lu,buf=%s)\n",
+               str.inner.size,
+               str.inner.capacity,
+               str.inner.buf
+        );
 }
 
-void std_String_extend(String str) {
+void String_extend(String str) {
 }
 
-Ptr std_Ptr_with_addr(Ptr ptr, UPtr addr) {
+Ptr Ptr_with_addr(Ptr ptr, UPtr addr) {
         return ptr = (Ptr) addr;
 }
-Ptr std_Ptr_with_offset(Ptr ptr, USize offset) {
+Ptr Ptr_with_offset(Ptr ptr, USize offset) {
         return ptr = (Ptr) ((UPtr) ptr + offset);
 }
 
