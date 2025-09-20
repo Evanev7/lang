@@ -1,5 +1,5 @@
-#ifndef CPLUS_MOD_STDP
-#define CPLUS_MOD_STDP
+#ifndef STDP
+#define STDP
 
 // ================DEBUG================ //
 
@@ -11,10 +11,18 @@
   #endif
 #endif
 
+
+#ifndef STDP_DEBUG_ALLOC
+  #define STDP_DEBUG_ALLOC STDP_DEBUG
+#endif
+
+
 // ============BASIC TYPES============== //
 
 #include <stdint.h>
 #include <stdio.h>
+
+#define Void void
 
 #define I1 int8_t 
 #define I2 int16_t 
@@ -33,7 +41,9 @@
 #define Bool _Bool
 #define true 1
 #define false 0
+#define Void void
 
+typedef void* Ptr;
 
 typedef struct U1List {
         USize size;
@@ -41,51 +51,36 @@ typedef struct U1List {
         U1* buf;
 } U1List;
 
+typedef FILE File;
+
 typedef struct String {
-        U1List inner;
+        USize size;
+        USize capacity;
+        U1* buf;
 } String;
 
-typedef enum LogLevel {
-        STD_LOG_ERROR = 0,
-        STD_LOG_WARN,
-        STD_LOG_INFO,
-        STD_LOG_DEBUG,
-        STD_LOG_TRACE,
-} LogLevel;
+U1* String_buf_from_cstr(char* str);
+char* String_buf_to_cstr(U1* str_buf);
+String String_from_cstr(char* str);
+char* String_to_cstr(String* str);
+Void String_print(String str);
+Void String_print_debug(String str);
+Void String_extend(String* str_base, String str_add);
 
-typedef void* Ptr;
+typedef struct Arena {
+        USize capacity;
+        USize used;
+        U1* buf;
+} Arena;
 
-String String_from_cstr(char* str) {
-        if (str == NULL) {
-                return (String) {0};
-        }
-        USize size = 0;
-        while (str[size] != '\0') {
-                size += 1;
-        }
-        return (String) { .inner = (U1List) { .size= size, .capacity= size + 1, .buf=(U1*)(unsigned char*)str } };
-}
+// malloc() a new arena on the heap with size bytes of storage
+Arena Arena_new(USize size);
+// Free an existing
+Void  Arena_free(Arena* arena);
+Ptr Arena_alloc(Arena* arena, USize size, USize align);
 
-void String_print(String str) {
-        printf("%s\n", str.inner.buf);
-}
-
-void String_print_debug(String str) {
-        printf("String(size=%lu,capacity=%lu,buf=%s)\n",
-               str.inner.size,
-               str.inner.capacity,
-               str.inner.buf
-        );
-}
-
-void String_extend(String str) {
-}
-
-Ptr Ptr_with_addr(Ptr ptr, UPtr addr) {
-        return ptr = (Ptr) addr;
-}
-Ptr Ptr_with_offset(Ptr ptr, USize offset) {
-        return ptr = (Ptr) ((UPtr) ptr + offset);
-}
 
 #endif
+
+
+

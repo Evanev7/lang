@@ -1,0 +1,12 @@
+test_align:
+        gcc -o alignment_benchmark alignment_benchmark.c -mavx2 -O2 -lpthread -std=c11 -Wall -Werror -Werror
+        ./alignment_benchmark
+        rm ./alignment_benchmark
+test_small:
+        gcc -o small_bench small_bench.c -O3 -std=c11 -Wall -Wextra -Werror
+        ./small_bench
+        rm ./small_bench
+test_small_2:
+        gcc -o small_bench_2 small_bench_2.c -O3 -std=c11 -Wall -Wextra -Werror
+        ./small_bench_2
+        rm ./small_bench_2

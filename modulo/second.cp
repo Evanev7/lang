@@ -20,3 +20,18 @@ impl blocks:
         perhaps we use ~ syntax?
         foo.bar() <- associated function
         foo~bar   <- offset
+
+do we need pointers?
+        We need memory locations and the ability to define them
+        But once we have a memory location, we can index into it instead of pointing
+        What is the difference?
+        - indices are safe (contiguous, length checked)
+        - indices are fast (much easier to pick U1-U8)
+        - pointers get functions, those can't go in a list
+                - but most function pointers are kind of lies?
+                - perhaps. polymorphism question
+        - polymorphism is cool. would we want a bits type for doing bithacking?
+        - pointer access is self contained - this is good and bad
+        - handles can still drift out of sync just like pointers can, it's just less bad
+        
+
