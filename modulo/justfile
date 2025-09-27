@@ -1,0 +1,2 @@
+main:
+        gcc main.c std/mod.c -o main && ./main && rm ./main

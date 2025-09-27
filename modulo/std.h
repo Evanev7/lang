@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #define Void void
 
@@ -59,13 +60,22 @@ typedef struct String {
         U1* buf;
 } String;
 
-U1* String_buf_from_cstr(char* str);
-char* String_buf_to_cstr(U1* str_buf);
+typedef struct StringSlice {
+        USize size;
+        U1* buf;
+} StringSlice;
+
+U1* U1_ptr_from_cstr(char* str);
+char* U1_ptr_to_cstr(U1* str_buf);
 String String_from_cstr(char* str);
 char* String_to_cstr(String* str);
-Void String_print(String str);
-Void String_print_debug(String str);
-Void String_extend(String* str_base, String str_add);
+Void String_print(const String str);
+Void String_print_debug(const String str);
+Void String_extend(String* str_base, const String str_add);
+Bool StringSlice_equal(const StringSlice a, const StringSlice b);
+Void StringSlice_print(const StringSlice str);
+Void StringSlice_print_debug(const StringSlice str);
+#define StringSlice_from_cstr(cstr) (StringSlice) { .size=sizeof(cstr)-1, .buf=(U1*)(unsigned char*)cstr }
 
 typedef struct Arena {
         USize capacity;
@@ -79,6 +89,12 @@ Arena Arena_new(USize size);
 Void  Arena_free(Arena* arena);
 Ptr Arena_alloc(Arena* arena, USize size, USize align);
 
+#define LIST_TRY_PUSH(list, item) if ((list).size < (list).capacity) {(list).buf[(list).size++] = item;}
+#define LIST_TRY_PUSH_WITH_EARLY_RETURN(list, item, ret) if ((list).size < (list).capacity) { (list).buf[(list).size++] = item; } else { return ret; }
+#define LIST_LAST_UNCHECKED(list) (list).buf[(list).size-1]
+#define LIST_NAME_TRY_PUSH(list, name, item) if ((list).size < (list).capacity) {(list).name[(list).size++] = item;}
+#define LIST_NAME_TRY_PUSH_WITH_EARLY_RETURN(list, name, item, ret) if ((list).size < (list).capacity) { (list).name[(list).size++] = item; } else { return ret; }
+#define LIST_NAME_LAST_UNCHECKED(list, name) (list).name[(list).size-1]
 
 #endif
 
