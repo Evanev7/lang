@@ -70,12 +70,19 @@ typedef enum TokenizerError {
 
 
 typedef struct TokenList {
-        U4 size;
-        U4 capacity;
+        Token* tok_buf;
         U4* idx_buf;
         U4* size_buf;
-        Token* tok_buf;
+        U4 size;
+        U4 capacity;
 } TokenList;
+
+typedef struct TokenSlice {
+        Token* tok_buf;
+        U4* idx_buf;
+        U4* size_buf;
+        U4 size;
+} TokenSlice;
 
 TokenList TokenList_new(const USize size) {
         return (TokenList) {
@@ -139,8 +146,8 @@ TokenizerError TokenList_push(TokenList* tokens, Token tok, U4 idx, U4 size) {
         return TOKERR_NONE;
 }
 
-#define TOK_PUSH(tok, idx) { TokenizerError err = TokenList_push(tokens, tok, idx, tok_len); tok_len = 0; if (err) {return err;} }
-#define TOK_CASE(ch, tok) case ch: TOK_PUSH(tok,i); break;
+#define TOK_PUSH(tok, idx) do { TokenizerError err = TokenList_push(tokens, tok, idx, tok_len); tok_len = 0; if (err) {return err;} } while (0)
+#define TOK_CASE(ch, tok) case ch: TOK_PUSH(tok,i); continue;
 
 TokenizerError tokenize(const StringSlice text, TokenList* tokens) {
         U4 tok_idx = 0;
@@ -155,10 +162,12 @@ TokenizerError tokenize(const StringSlice text, TokenList* tokens) {
                         // we classify_word on (StringSlice) { .size=4, .buf=&text.buf[3+1-4]}
                         Token tok = classify_word((StringSlice) {.size=tok_len, .buf=&text.buf[i+1-tok_len] });
                         TOK_PUSH(tok, i);
+                        continue;
                 } 
                 // if this is whitespace and next isn't, push a SPACE
                 if (is_whitespace(text.buf[i]) && (i+1 >= text.size || !is_whitespace(text.buf[i+1]))) {
-                        TOK_PUSH(TOK_SPACE, i);
+                        //TOK_PUSH(TOK_SPACE, i);
+                        continue;
                 }
                 switch (text.buf[i]) {
                         TOK_CASE(',', TOK_COMMA);

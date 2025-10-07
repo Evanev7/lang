@@ -20,21 +20,26 @@ Void  Arena_free(Arena* arena) {
         arena->buf = 0;
 }
 
-Ptr Arena_alloc(Arena* arena, USize size, USize align) {
+
+ArenaAllocResult Arena_alloc(Arena* arena, USize size, USize align) {
         if (size * align == 0) {
-                return NULL;
+                return (ArenaAllocResult) { .tag = AAERR_ZST };
         }
         if (align  && ((align & (align-1)) == 0)) {
-                return NULL;
+                return (ArenaAllocResult) { .tag = AAERR_NON_POW_2_ALIGN };
         }
         
         USize offset = align_up(size, align);
         if (arena->capacity <= offset + size) {
-                return NULL;
+                return (ArenaAllocResult) { .tag = AAERR_OOM };
         }
         arena->used = offset + size;
-        return &arena->buf[offset];
+        return (ArenaAllocResult) { .tag = AAERR_NONE, .idx = (ArenaHandle) { ._idx = offset } };
 }
+
+Ptr Arena_get(const Arena arena, ArenaHandle handle) {
+        return &arena.buf[handle._idx];
+};
 
 
 USize align_up(USize size, USize align) {

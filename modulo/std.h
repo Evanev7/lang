@@ -52,6 +52,12 @@ typedef struct U1List {
         U1* buf;
 } U1List;
 
+typedef struct U4List {
+        USize size;
+        USize capacity;
+        U4* buf;
+} U4List;
+
 typedef FILE File;
 
 typedef struct String {
@@ -83,11 +89,29 @@ typedef struct Arena {
         U1* buf;
 } Arena;
 
-// malloc() a new arena on the heap with size bytes of storage
+typedef struct ArenaHandle { USize _idx; } ArenaHandle;
+
+typedef struct ArenaAllocResult {
+        union {
+                ArenaHandle idx;
+        };
+        enum {
+                AAERR_NONE,
+                AAERR_ZST,
+                AAERR_NON_POW_2_ALIGN,
+                AAERR_OOM,
+        } tag;
+} ArenaAllocResult;
+
+/// malloc() a new arena on the heap with size bytes of storage
 Arena Arena_new(USize size);
-// Free an existing
+/// Free an existing arena
 Void  Arena_free(Arena* arena);
-Ptr Arena_alloc(Arena* arena, USize size, USize align);
+/// Allocate some space in the arena.
+ArenaAllocResult Arena_alloc(Arena* arena, USize size, USize align);
+/// Convert a Handle to a Ptr
+Ptr Arena_get(const Arena arena, ArenaHandle handle);
+
 
 #define LIST_TRY_PUSH(list, item) if ((list).size < (list).capacity) {(list).buf[(list).size++] = item;}
 #define LIST_TRY_PUSH_WITH_EARLY_RETURN(list, item, ret) if ((list).size < (list).capacity) { (list).buf[(list).size++] = item; } else { return ret; }
