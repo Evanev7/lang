@@ -43,12 +43,12 @@ typedef struct SynNodeList {
 
 typedef struct Nodeifier {
         USize idx;
+        SynNodeList* nodes;
         const TokenSlice tokens;
-        SynNodeList nodes;
         U4 current;
 } Nodeifier;
 
-Nodeifier Nodeifier_new(SynNodeList nodes, const TokenSlice tokens) {
+Nodeifier Nodeifier_new(SynNodeList* nodes, const TokenSlice tokens) {
         return (Nodeifier) { .idx=0, .tokens=tokens, .nodes=nodes, .current=0 };
 }
 
@@ -69,25 +69,25 @@ NodeifyResult Nodeify_error(NodeifyError err) {
         return (NodeifyResult) { .is_err=true, .err=err };
 }
 
-#define NODEIFY_PUSH(ndf, node) LIST_TRY_PUSH_WITH_EARLY_RETURN(ndf.nodes, node, NDFERR_NODELIST_FULL);
+#define NODEIFY_PUSH(ndf, node) LIST_TRY_PUSH_WITH_EARLY_RETURN((ndf)->nodes, node, NDFERR_NODELIST_FULL);
 
-NodeifyResult nodeify_value(Nodeifier* ndf) {
-
-}
-
-NodeifyResult nodeify_expression(Nodeifier* ndf) {
+NodeifyResult nodeify_value(const Nodeifier ndf) {
 
 }
 
-NodeifyResult nodeify_assignment(Nodeifier* ndf) {
+NodeifyResult nodeify_expression(const Nodeifier ndf) {
+
+}
+
+NodeifyResult nodeify_assignment(const Nodeifier ndf) {
         // We currently match for WORD EQUAL ANY
         // We do this by checking size >= idx+3 followed by strict equality.
-        const TokenSlice tokens = ndf->tokens;
-        if (tokens.size < ndf->idx+3) {
+        const TokenSlice tokens = ndf.tokens;
+        if (tokens.size < ndf.idx+3) {
                 return Nodeify_error(NDFERR_NOT_ENOUGH_TOKENS);
         }
-        if (tokens.tok_buf[ndf->idx] == TOK_WORD &&
-                tokens.tok_buf[ndf->idx+1] == TOK_EQUAL) {
+        if (tokens.tok_buf[ndf.idx] == TOK_WORD &&
+                tokens.tok_buf[ndf.idx+1] == TOK_EQUAL) {
 
                 SynNode node = (SynNode) { .next=0, .kind=SNK_ASSIGNMENT };
                 return (NodeifyResult) { .is_err=false, .advance=4, .node=node };
@@ -96,20 +96,22 @@ NodeifyResult nodeify_assignment(Nodeifier* ndf) {
         return Nodeify_error(NDFERR_NODEIFY_FAILED);
 }
 
-NodeifyError nodeify(const TokenSlice tokens, Arena arena, SynNodeList nodes) {
+NodeifyError nodeify(const TokenSlice tokens, Arena arena, SynNodeList* nodes) {
         SynNode head = (SynNode) { .next=0, .kind=SNK_PROGRAM };
+        LIST_TRY_PUSH(*nodes, head);
         Nodeifier ndf = Nodeifier_new(nodes, tokens);
-        NODEIFY_PUSH(ndf, head);
+        U4 tree_stack[20] = {0};
+        U1 depth = 0;
         while (ndf.idx < tokens.size) {
                 NodeifyResult res;
-                switch (ndf.nodes.buf[ndf.current].kind) {
+                switch (ndf.nodes->buf[ndf.current].kind) {
                         case SNK_PROGRAM: 
-                                res = nodeify_assignment(&ndf);
+                                res = nodeify_assignment(ndf);
                                 break;
                         case SNK_ASSIGNMENT:
-                                res = nodeify_expression(&ndf);
+                                res = nodeify_expression(ndf);
                                 if (res.is_err) {
-                                        res = nodeify_value(&ndf);
+                                        res = nodeify_value(ndf);
                                 }
                                 break;
                         case SNK_BLOCK:
@@ -128,7 +130,6 @@ NodeifyError nodeify(const TokenSlice tokens, Arena arena, SynNodeList nodes) {
                         ndf.idx += res.advance;
                         NODEIFY_PUSH(ndf, res.node);
                         ndf.current = ndf.nodes.size - 1;
-                        
                 }
         }
         return NDFERR_NONE;
