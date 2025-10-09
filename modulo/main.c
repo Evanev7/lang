@@ -11,10 +11,6 @@ typedef enum SynNodeKind {
         SNK_LOOP,
 } SynNodeKind;
 
-// CONVENTION
-// If U4List.buf = NULL, U4List.capacity=0 then U4List.size represents the index in the SynNodeList of a SINGLE child.
-// This is a stupid niche optimization
-
 typedef struct SynNode {
         // SynNodes internally link with a NULL terminated list.
         // This is an Arena index, not a pointer.
@@ -55,12 +51,7 @@ Nodeifier Nodeifier_new(SynNodeList* nodes, const TokenSlice tokens) {
 typedef struct NodeifyResult {
         Bool is_err;
         union {
-                struct {
-                        // How many tokens we have consumed
-                        U4 advance;
-                        // What node shall be produced by this step
-                        SynNode node;
-                };
+                Nodeifier ndf;
                 NodeifyError err;
         };
 } NodeifyResult;
@@ -69,14 +60,26 @@ NodeifyResult Nodeify_error(NodeifyError err) {
         return (NodeifyResult) { .is_err=true, .err=err };
 }
 
-#define NODEIFY_PUSH(ndf, node) LIST_TRY_PUSH_WITH_EARLY_RETURN((ndf)->nodes, node, NDFERR_NODELIST_FULL);
+#define NODEIFY_PUSH(node) LIST_TRY_PUSH_WITH_EARLY_RETURN(*ndf.nodes, node, Nodeify_error(NDFERR_NODELIST_FULL));
 
-NodeifyResult nodeify_value(const Nodeifier ndf) {
+NodeifyError nodeify_block(Nodeifier* ndf) {
 
 }
 
-NodeifyResult nodeify_expression(const Nodeifier ndf) {
+NodeifyError nodeify_value(Nodeifier* ndf) {
+        // Matching WORD CCALL, WORD RCALL, WORD CCALL RCALL.
+        const TokenSlice tokens = ndf->tokens;
+        if (ndf->tokens.size < ndf->idx+2) {
+                return NDFERR_NOT_ENOUGH_TOKENS;
+        }
 
+}
+
+NodeifyError nodeify_expression(Nodeifier* ndf) {
+        if (nodeify_value(ndf)) {
+                return nodeify_block(ndf);
+        }
+        return NDFERR_NONE;
 }
 
 NodeifyResult nodeify_assignment(const Nodeifier ndf) {
@@ -86,53 +89,32 @@ NodeifyResult nodeify_assignment(const Nodeifier ndf) {
         if (tokens.size < ndf.idx+3) {
                 return Nodeify_error(NDFERR_NOT_ENOUGH_TOKENS);
         }
-        if (tokens.tok_buf[ndf.idx] == TOK_WORD &&
-                tokens.tok_buf[ndf.idx+1] == TOK_EQUAL) {
-
-                SynNode node = (SynNode) { .next=0, .kind=SNK_ASSIGNMENT };
-                return (NodeifyResult) { .is_err=false, .advance=4, .node=node };
-
+        if (tokens.tok_buf[ndf.idx] != TOK_WORD || 
+                tokens.tok_buf[ndf.idx+1] != TOK_EQUAL) {
+                return Nodeify_error(NDFERR_NODEIFY_FAILED);
         }
-        return Nodeify_error(NDFERR_NODEIFY_FAILED);
+
+        SynNode* prev = &ndf.nodes->buf[ndf.current];
+        SynNode node = (SynNode) { .next=0, .kind=SNK_ASSIGNMENT };
+        NODEIFY_PUSH(node);
+        prev->next = ndf.nodes->size - 1;
+        ndf.idx += 2;
+        nodeify_expression(ndf);
 }
 
-NodeifyError nodeify(const TokenSlice tokens, Arena arena, SynNodeList* nodes) {
+NodeifyResult nodeify_program(const Nodeifier ndf) {
+        while (ndf.idx < ndf.tokens.size) {
+                NodeifyResult res = nodeify_assignment(ndf);
+                if (res.is_err) { return res; }
+        }
+        return (NodeifyResult) { .is_err=false, .ndf = ndf };
+}
+
+NodeifyError nodeify(const TokenSlice tokens, SynNodeList* nodes) {
         SynNode head = (SynNode) { .next=0, .kind=SNK_PROGRAM };
         LIST_TRY_PUSH(*nodes, head);
         Nodeifier ndf = Nodeifier_new(nodes, tokens);
-        U4 tree_stack[20] = {0};
-        U1 depth = 0;
-        while (ndf.idx < tokens.size) {
-                NodeifyResult res;
-                switch (ndf.nodes->buf[ndf.current].kind) {
-                        case SNK_PROGRAM: 
-                                res = nodeify_assignment(ndf);
-                                break;
-                        case SNK_ASSIGNMENT:
-                                res = nodeify_expression(ndf);
-                                if (res.is_err) {
-                                        res = nodeify_value(ndf);
-                                }
-                                break;
-                        case SNK_BLOCK:
-                        case SNK_RCALL:
-                        case SNK_CCALL:
-                        default:
-                                break;
-
-
-                }
-                if (res.is_err && NodeifyError_is_critical(res.err)) {
-                        return res.err;
-                } else if (res.is_err) {
-                        //continue
-                } else {
-                        ndf.idx += res.advance;
-                        NODEIFY_PUSH(ndf, res.node);
-                        ndf.current = ndf.nodes.size - 1;
-                }
-        }
-        return NDFERR_NONE;
+        return nodeify_program(&ndf);
 }
 
 
