@@ -59,8 +59,7 @@ typedef struct NodeifyResult {
 NodeifyResult Nodeify_error(NodeifyError err) {
         return (NodeifyResult) { .is_err=true, .err=err };
 }
-
-#define NODEIFY_PUSH(node) LIST_TRY_PUSH_WITH_EARLY_RETURN(*ndf.nodes, node, Nodeify_error(NDFERR_NODELIST_FULL));
+#define NODEIFY_PUSH(node) LIST_TRY_PUSH_WITH_EARLY_RETURN((*ndf->nodes), node, NDFERR_NODELIST_FULL);
 
 NodeifyError nodeify_block(Nodeifier* ndf) {
 
@@ -82,32 +81,37 @@ NodeifyError nodeify_expression(Nodeifier* ndf) {
         return NDFERR_NONE;
 }
 
-NodeifyResult nodeify_assignment(const Nodeifier ndf) {
+NodeifyError nodeify_assignment(Nodeifier* ndf) {
         // We currently match for WORD EQUAL ANY
         // We do this by checking size >= idx+3 followed by strict equality.
-        const TokenSlice tokens = ndf.tokens;
-        if (tokens.size < ndf.idx+3) {
-                return Nodeify_error(NDFERR_NOT_ENOUGH_TOKENS);
+        const TokenSlice tokens = ndf->tokens;
+        if (tokens.size < ndf->idx+3) {
+                return (NDFERR_NOT_ENOUGH_TOKENS);
         }
-        if (tokens.tok_buf[ndf.idx] != TOK_WORD || 
-                tokens.tok_buf[ndf.idx+1] != TOK_EQUAL) {
-                return Nodeify_error(NDFERR_NODEIFY_FAILED);
+        if (tokens.tok_buf[ndf->idx] != TOK_WORD || 
+                tokens.tok_buf[ndf->idx+1] != TOK_EQUAL) {
+                return (NDFERR_NODEIFY_FAILED);
         }
 
-        SynNode* prev = &ndf.nodes->buf[ndf.current];
+        SynNode* prev = &ndf->nodes->buf[ndf->current];
         SynNode node = (SynNode) { .next=0, .kind=SNK_ASSIGNMENT };
         NODEIFY_PUSH(node);
-        prev->next = ndf.nodes->size - 1;
-        ndf.idx += 2;
-        nodeify_expression(ndf);
+        prev->next = ndf->nodes->size - 1;
+        ndf->idx += 2;
+        NodeifyError err = nodeify_expression(ndf);
+        if (err) {
+                prev->next = 0;
+                ndf->idx -= 2;
+        }
+        return NDFERR_NONE;
 }
 
-NodeifyResult nodeify_program(const Nodeifier ndf) {
-        while (ndf.idx < ndf.tokens.size) {
-                NodeifyResult res = nodeify_assignment(ndf);
-                if (res.is_err) { return res; }
+NodeifyError nodeify_program(Nodeifier* ndf) {
+        while (ndf->idx < ndf->tokens.size) {
+                NodeifyError err = nodeify_assignment(ndf);
+                if (err) { return err; }
         }
-        return (NodeifyResult) { .is_err=false, .ndf = ndf };
+        return NDFERR_NONE;
 }
 
 NodeifyError nodeify(const TokenSlice tokens, SynNodeList* nodes) {

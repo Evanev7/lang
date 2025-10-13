@@ -416,6 +416,10 @@ mod test {
         graph.execute().unwrap();
     }
 
+    fn times_int_by_two(it: i32) -> i32 {
+        it * 2
+    }
+
     // Failing - need to figure out how I want to get graph outputs.
     #[test]
     fn test_simple_linear_chain() {
@@ -423,7 +427,7 @@ mod test {
 
         let initial_value = graph.add_resource(10i32);
         let plus_five = graph.add_task(Read(initial_value), |x| *x + 5);
-        let times_two = graph.add_task(plus_five, |x| x * 2);
+        let times_two = graph.add_task(plus_five, times_int_by_two);
         //let writer = graph.add_task((times_two, Write(initial_value)), |(x, r)| *r = x);
         graph.execute().unwrap();
         let result = *graph.get(initial_value).unwrap();

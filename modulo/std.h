@@ -113,11 +113,11 @@ ArenaAllocResult Arena_alloc(Arena* arena, USize size, USize align);
 Ptr Arena_get(const Arena arena, ArenaHandle handle);
 
 
-#define LIST_TRY_PUSH(list, item) if ((list).size < (list).capacity) {(list).buf[(list).size++] = item;}
-#define LIST_TRY_PUSH_WITH_EARLY_RETURN(list, item, ret) if ((list).size < (list).capacity) { (list).buf[(list).size++] = item; } else { return ret; }
+#define LIST_TRY_PUSH(list, item) if ((list).size < (list).capacity) { (list).buf[(list).size] = item; (list).size += 1; }
+#define LIST_TRY_PUSH_WITH_EARLY_RETURN(list, item, ret) if ((list).size < (list).capacity) { (list).buf[(list).size] = item; (list).size += 1; } else { return ret; }
 #define LIST_LAST_UNCHECKED(list) (list).buf[(list).size-1]
-#define LIST_NAME_TRY_PUSH(list, name, item) if ((list).size < (list).capacity) {(list).name[(list).size++] = item;}
-#define LIST_NAME_TRY_PUSH_WITH_EARLY_RETURN(list, name, item, ret) if ((list).size < (list).capacity) { (list).name[(list).size++] = item; } else { return ret; }
+#define LIST_NAME_TRY_PUSH(list, name, item) if ((list).size < (list).capacity) { (list).name[(list).size] = item; (list).size += 1;}
+#define LIST_NAME_TRY_PUSH_WITH_EARLY_RETURN(list, name, item, ret) if ((list).size < (list).capacity) { (list).name[(list).size] = item; (list).size += 1; } else { return ret; }
 #define LIST_NAME_LAST_UNCHECKED(list, name) (list).name[(list).size-1]
 
 #endif
