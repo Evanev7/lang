@@ -1,164 +1,20 @@
-#include "std.h"
-#include "tokens.c"
-
-typedef enum SynNodeKind {
-        SNK_BLOCK = 0,
-        SNK_ASSIGNMENT,
-        SNK_PROGRAM,
-        SNK_CCALL,
-        SNK_RCALL,
-        SNK_IF,
-        SNK_LOOP,
-} SynNodeKind;
-
-typedef struct SynNode {
-        // SynNodes internally link with a NULL terminated list.
-        // This is an Arena index, not a pointer.
-        U4 next;
-        SynNodeKind kind;
-        union {
-        };
-} SynNode;
-
-typedef enum NodeifyError {
-        NDFERR_NONE = 0,
-        NDFERR_NOT_ENOUGH_TOKENS,
-        NDFERR_NODEIFY_FAILED,
-        NDFERR_NODELIST_FULL,
-} NodeifyError;
-
-Bool NodeifyError_is_critical(NodeifyError err) {
-        return (err == NDFERR_NODELIST_FULL || false);
-}
-
-typedef struct SynNodeList {
-        SynNode* buf;
-        U4 size;
-        U4 capacity;
-} SynNodeList;
-
-typedef struct Nodeifier {
-        USize idx;
-        SynNodeList* nodes;
-        const TokenSlice tokens;
-        U4 current;
-} Nodeifier;
-
-Nodeifier Nodeifier_new(SynNodeList* nodes, const TokenSlice tokens) {
-        return (Nodeifier) { .idx=0, .tokens=tokens, .nodes=nodes, .current=0 };
-}
-
-typedef struct NodeifyResult {
-        Bool is_err;
-        union {
-                Nodeifier ndf;
-                NodeifyError err;
-        };
-} NodeifyResult;
-
-NodeifyResult Nodeify_error(NodeifyError err) {
-        return (NodeifyResult) { .is_err=true, .err=err };
-}
-#define NODEIFY_PUSH(node) LIST_TRY_PUSH_WITH_EARLY_RETURN((*ndf->nodes), node, NDFERR_NODELIST_FULL);
-
-NodeifyError nodeify_block(Nodeifier* ndf) {
-
-}
-
-NodeifyError nodeify_value(Nodeifier* ndf) {
-        // Matching WORD CCALL, WORD RCALL, WORD CCALL RCALL.
-        const TokenSlice tokens = ndf->tokens;
-        if (ndf->tokens.size < ndf->idx+2) {
-                return NDFERR_NOT_ENOUGH_TOKENS;
-        }
-
-}
-
-NodeifyError nodeify_expression(Nodeifier* ndf) {
-        if (nodeify_value(ndf)) {
-                return nodeify_block(ndf);
-        }
-        return NDFERR_NONE;
-}
-
-NodeifyError nodeify_assignment(Nodeifier* ndf) {
-        // We currently match for WORD EQUAL ANY
-        // We do this by checking size >= idx+3 followed by strict equality.
-        const TokenSlice tokens = ndf->tokens;
-        if (tokens.size < ndf->idx+3) {
-                return (NDFERR_NOT_ENOUGH_TOKENS);
-        }
-        if (tokens.tok_buf[ndf->idx] != TOK_WORD || 
-                tokens.tok_buf[ndf->idx+1] != TOK_EQUAL) {
-                return (NDFERR_NODEIFY_FAILED);
-        }
-
-        SynNode* prev = &ndf->nodes->buf[ndf->current];
-        SynNode node = (SynNode) { .next=0, .kind=SNK_ASSIGNMENT };
-        NODEIFY_PUSH(node);
-        prev->next = ndf->nodes->size - 1;
-        ndf->idx += 2;
-        NodeifyError err = nodeify_expression(ndf);
-        if (err) {
-                prev->next = 0;
-                ndf->idx -= 2;
-        }
-        return NDFERR_NONE;
-}
-
-NodeifyError nodeify_program(Nodeifier* ndf) {
-        while (ndf->idx < ndf->tokens.size) {
-                NodeifyError err = nodeify_assignment(ndf);
-                if (err) { return err; }
-        }
-        return NDFERR_NONE;
-}
-
-NodeifyError nodeify(const TokenSlice tokens, SynNodeList* nodes) {
-        SynNode head = (SynNode) { .next=0, .kind=SNK_PROGRAM };
-        LIST_TRY_PUSH(*nodes, head);
-        Nodeifier ndf = Nodeifier_new(nodes, tokens);
-        return nodeify_program(&ndf);
-}
-
+#include "nodes.c"
 
 I4 main(I4 argc, char** argv) {
-        StringSlice code = StringSlice_from_cstr("hello<with = foo>; loop { big<small>; }");
+        StringSlice code = StringSlice_from_cstr("3U1 ,  -4U81");
         TokenList toks = TokenList_new(100);
-        TokenizerError err = tokenize(code, &toks);
-        if (err) {
-                return err;
+        TokenizerError t_err = tokenize(code, &toks);
+        if (t_err) {
+                TokenizerError_pretty_print_debug(t_err);
+                return t_err;
         }
         TokenList_pretty_print_debug(toks);
+        SynNodeList nodes = SynNodeList_new(100);
+        NodeifyResult nr = nodeify_program(TokenSlice_from_list(toks), &nodes);
+        if (nr.is_err) {
+                NodeifyError_pretty_print_debug(nr.err);
+                return nr.err;
+        }
+        SynNodeList_pretty_print_debug(nodes);
         return 0;
 }
-
-/*
-*
-* Ok, let's write out the grammar.
-* PROGRAM: (ASSIGNMENT)*
-* ASSIGNMENT: WORD '=' EXPRESSION
-* EXPRESSION: VALUE, BLOCK
-* BLOCK: { ((EXPRESSION, ASSIGNMENT) SEP)* EXPRESSION }
-* VALUE: WORD CCALL, WORD RCALL, WORD CCALL RCALL
-* CCALL: '<'(NAME (SEP NAME)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)'>'
-* RCALL: '('NAME* ASSIGNMENT*')'
-* SEP: ',', '\n'
-*
-* Let's write some code and see how it fits.
-*
-* main = Fn<
-*       args = Args<foo = I4
-*       bar = I8, baz = Str>
-*       ret = I4
-*       body = { two = 2U4; four = 4U4; six = two.add(four); six }
-* >
-*
-* Str = struct<
-*       size = USize
-*       capacity = USize
-*       buf = Ptr<U1>
-* >
-* Ptr = Fn<Type, body = { VoidPtr }>
-*
-*/

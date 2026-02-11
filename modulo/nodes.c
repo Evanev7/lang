@@ -6,21 +6,73 @@ typedef enum SynNodeKind {
         SNK_EXPRESSION,
         SNK_VALUE,
         SNK_BLOCK,
+        SNK_RCALL,
+        SNK_CCALL,
+        SNK_ARGS,
 } SynNodeKind;
+#define SNK_CASE_DBG_NAME(snk) case snk: return U1_ptr_from_cstr(#snk);
+U1* SynNodeKind_retrieve_debug_name(SynNodeKind snk) {
+        switch(snk) {
+                SNK_CASE_DBG_NAME(SNK_PROGRAM);
+                SNK_CASE_DBG_NAME(SNK_ASSIGNMENT);
+                SNK_CASE_DBG_NAME(SNK_EXPRESSION);
+                SNK_CASE_DBG_NAME(SNK_VALUE);
+                SNK_CASE_DBG_NAME(SNK_BLOCK);
+                SNK_CASE_DBG_NAME(SNK_RCALL);
+                SNK_CASE_DBG_NAME(SNK_CCALL);
+                SNK_CASE_DBG_NAME(SNK_ARGS);
+        }
+        return U1_ptr_from_cstr("TOK_UNKNOWN");
+}
+
 typedef enum NodeifyError {
         NDFERR_NONE,
-        NDFERR_FAILED,
+        NDFERR_NO_MATCH,
+        NDFERR_SYNTAX,
         NDFERR_NOT_ENOUGH_NODES,
         NDFERR_NOT_ENOUGH_TOKENS,
 } NodeifyError;
-typedef struct SynNode { SynNodeKind kind; USize child; USize next; } SynNode;
+#define NDFERR_CASE_DBG_NAME(tok) case tok: return U1_ptr_from_cstr(#tok);
+U1* NodeifyError_retrieve_debug_name(NodeifyError n_err) {
+        switch(n_err) {
+                NDFERR_CASE_DBG_NAME(NDFERR_NONE);
+                NDFERR_CASE_DBG_NAME(NDFERR_SYNTAX);
+                NDFERR_CASE_DBG_NAME(NDFERR_NO_MATCH);
+                NDFERR_CASE_DBG_NAME(NDFERR_NOT_ENOUGH_NODES);
+                NDFERR_CASE_DBG_NAME(NDFERR_NOT_ENOUGH_TOKENS);
+        };
+        return U1_ptr_from_cstr("NDFERR_UNKNOWN");
+}
+Void NodeifyError_pretty_print_debug(NodeifyError n_err) {
+        printf("NodeifyError(%s)", NodeifyError_retrieve_debug_name(n_err));
+}
+typedef struct SynNode { SynNodeKind kind; USize child; USize next; USize token_index; } SynNode;
 typedef struct SynNodeList { SynNode* buf; USize size; USize capacity; } SynNodeList;
-typedef struct NodeifyResult { Bool is_err;
+SynNodeList SynNodeList_new(USize capacity) {
+        return (SynNodeList) {
+                .buf=malloc(capacity * sizeof(SynNode)),
+                .size=0,
+                .capacity=capacity,
+        };
+};
+Void SynNodeList_pretty_print_debug(const SynNodeList nodes) {
+        printf("TokenList(\n    size=%lu,\n    capacity=%lu,\n    nodes=[\n", nodes.size, nodes.capacity);
+        for (USize i = 0; i < nodes.size; i+=1) {
+                SynNode node = nodes.buf[i];
+                printf("        (%4lu): %s,\n", i, U1_ptr_to_cstr(SynNodeKind_retrieve_debug_name(node.kind)));
+                printf("        child: %lu, next: %lu, token_index: %lu\n", node.child, node.next, node.token_index);
+        }
+        printf("])\n");
+}
+
+typedef struct NodeifyResult { 
+        Bool is_err;
         union {
                 USize ok;
                 NodeifyError err;
         };
 } NodeifyResult;
+
 
 NodeifyResult NodeifyResult_ok(USize ok) {
         return (NodeifyResult) { .is_err = false, .ok = ok };
@@ -29,26 +81,211 @@ NodeifyResult NodeifyResult_err(NodeifyError err) {
         return (NodeifyResult) { .is_err = true, .err=err };
 }
 
-NodeifyResult nodeify_value(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+NodeifyResult NodeifyResult_late(NodeifyResult res) {
+        if (res.is_err && res.err == NDFERR_NO_MATCH) {
+                return NodeifyResult_err(NDFERR_SYNTAX); 
+        } else {
+                return res;
+        }
 }
+// Forward decls
+NodeifyResult nodeify_assignment(const TokenSlice tokens, USize* index, SynNodeList* nodes);
+NodeifyResult nodeify_expression(const TokenSlice tokens, USize* index, SynNodeList* nodes);
 
-NodeifyResult nodeify_block(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
-}
+#define NODEIFY_SNAPSHOT() USize __start_index=*index; USize __start_nodes=nodes->size
+#define NODEIFY_REWIND() *index=__start_index; nodes->size=__start_nodes
+#define NODEIFY_FIRST_PEEK(tok) do { if (tokens.size < *index + 1) { return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); } if (tokens.tok_buf[*index] != tok) { return NodeifyResult_err(NDFERR_NO_MATCH); } } while (0)
 
-NodeifyResult nodeify_expression(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
-        SynNode head = { .kind=SNK_EXPRESSION, .child=0, .next=0 };
+NodeifyResult nodeify_arglist(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+        NODEIFY_SNAPSHOT();
+        SynNode head = { .kind=SNK_ARGS, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
         LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
         USize head_idx = nodes->size-1;
-        NodeifyResult res = nodeify_value(tokens, index, nodes);
+        while (1) {
+                // (EXPR (SEP EXPR)*)
+        }
+
+        while (1) {
+                // (ASSIGNMENT (SEP ASSIGNMENT)*)
+        }
+}
+NodeifyResult nodeify_ccall(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+        NODEIFY_FIRST_PEEK(TOK_LANGLE);
+        NODEIFY_SNAPSHOT();
+        SynNode head = { .kind=SNK_CCALL, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
+        LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
+        USize head_idx = nodes->size-1;
+        *index += 1;
+        if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+        if (tokens.tok_buf[*index] == TOK_RANGLE) { *index +=1; return NodeifyResult_ok(head_idx); }
+        NodeifyResult res = nodeify_arglist(tokens, index, nodes);
         if (res.is_err) {
-                res = nodeify_block(tokens, index, nodes);
-                if (res.is_err) {
-                        nodes->size -= 1;
+                NODEIFY_REWIND();
+                return NodeifyResult_late(res);
+        }
+        nodes->buf[head_idx].child = res.ok;
+        if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+        if (tokens.tok_buf[*index] != TOK_RANGLE) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_SYNTAX); }
+        *index +=1; 
+        return NodeifyResult_ok(head_idx);
+}
+NodeifyResult nodeify_rcall(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+        NODEIFY_FIRST_PEEK(TOK_LPAREN);
+        NODEIFY_SNAPSHOT();
+        SynNode head = { .kind=SNK_RCALL, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
+        LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
+        USize head_idx = nodes->size-1;
+        *index += 1;
+        if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+        if (tokens.tok_buf[*index] == TOK_RPAREN) { *index +=1; return NodeifyResult_ok(head_idx); }
+        NodeifyResult res = nodeify_arglist(tokens, index, nodes);
+        if (res.is_err) {
+                NODEIFY_REWIND();
+                return NodeifyResult_late(res); 
+        }
+        nodes->buf[head_idx].child = res.ok;
+        if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+        if (tokens.tok_buf[*index] != TOK_RPAREN) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_SYNTAX); }
+        *index +=1; 
+        return NodeifyResult_ok(head_idx);
+}
+
+/// So currently, we don't handle literals,
+/// and we don't handle some kind of magic partial application api
+/// we just handle foo<a, b>(c, d)
+/// Ideally, foo<x><y> = foo<x, y>, but that's a problem for later.
+/// Realistically for now, if you want foo<a><b> = foo<a, b>, define foo2<b> = foo<a, b>
+/// Currying is weird man, it just magically stores data in the land of partial application
+/// Not a fan.
+NodeifyResult nodeify_value(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+        NODEIFY_FIRST_PEEK(TOK_WORD);
+        NODEIFY_SNAPSHOT();
+        SynNode head = { .kind=SNK_VALUE, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
+        LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
+        USize head_idx = nodes->size-1;
+        *index += 1;
+        NodeifyResult res = nodeify_ccall(tokens, index, nodes);
+        if (res.is_err) {
+                if (res.err != NDFERR_NO_MATCH) {
+                        NODEIFY_REWIND();
                         return res;
+                }
+        } else {
+                nodes->buf[head_idx].child = res.ok;
+        }
+        NodeifyResult res2 = nodeify_rcall(tokens, index, nodes);
+        if (res2.is_err) {
+                if (res2.err != NDFERR_NO_MATCH) {
+                        NODEIFY_REWIND();
+                        return res2;
+                }
+        } else {
+                if (res.is_err) {
+                        nodes->buf[head_idx].child = res2.ok;
+                } else {
+                        nodes->buf[res.ok].next = res2.ok;
                 }
         }
         return NodeifyResult_ok(head_idx);
+}
 
+
+NodeifyResult nodeify_block(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+        NODEIFY_FIRST_PEEK(TOK_LCURLY);
+        NODEIFY_SNAPSHOT();
+
+        SynNode head = { .kind=SNK_BLOCK, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
+        LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
+        USize head_idx = nodes->size-1;
+        *index += 1;
+
+        if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+        if (tokens.tok_buf[*index] == TOK_RCURLY) {
+                *index += 1;
+                return NodeifyResult_ok(head_idx);
+        }
+
+        NodeifyResult res = nodeify_expression(tokens, index, nodes);
+        if (res.is_err) {
+                NODEIFY_REWIND();
+                return NodeifyResult_late(res);
+        }
+        nodes->buf[head_idx].child=res.ok;
+
+        if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+        if (tokens.tok_buf[*index] == TOK_RCURLY) {
+                *index += 1;
+                return NodeifyResult_ok(head_idx);
+        }
+
+        while (1) {
+                // Got at least one expression, time for (SEP EXPR)* SEP?
+                if (tokens.size < *index+1) {
+                        NODEIFY_REWIND();
+                        return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS);
+                }
+                if (!Token_is_sep(tokens.tok_buf[*index])) {
+                        NODEIFY_REWIND();
+                        return NodeifyResult_err(NDFERR_SYNTAX);
+                }
+
+                // We don't push a node for the separator
+                *index += 1;
+
+                if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+                if (tokens.tok_buf[*index] == TOK_RCURLY) {
+                        *index += 1;
+                        return NodeifyResult_ok(head_idx);
+                }
+
+                NodeifyResult res2 = nodeify_expression(tokens, index, nodes);
+                if (res2.is_err) {
+                        NODEIFY_REWIND();
+                        return NodeifyResult_late(res2);
+                }
+                // The previous link points to this, update the previous link, and move on
+                nodes->buf[res.ok].next = res2.ok;
+                res = res2;
+
+                if (tokens.size < *index+1) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+                if (tokens.tok_buf[*index] == TOK_RCURLY) {
+                        *index += 1;
+                        return NodeifyResult_ok(head_idx);
+                }
+        }
+}
+
+
+
+NodeifyResult nodeify_expression(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+        SynNode head = { .kind=SNK_EXPRESSION, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
+        LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
+        USize head_idx = nodes->size-1;
+        NodeifyResult res;
+
+        res = nodeify_value(tokens, index, nodes);
+        if (!res.is_err) {
+                nodes->buf[head_idx].child = res.ok;
+                return NodeifyResult_ok(head_idx);
+        }
+        if (res.err != NDFERR_NO_MATCH) { nodes->size -= 1; return res; }
+
+        res = nodeify_block(tokens, index, nodes);
+        if (!res.is_err) {
+                nodes->buf[head_idx].child = res.ok;
+                return NodeifyResult_ok(head_idx);
+        }
+        if (res.err != NDFERR_NO_MATCH) { nodes->size -= 1; return res; }
+
+        res = nodeify_assignment(tokens, index, nodes);
+        if (!res.is_err) {
+                nodes->buf[head_idx].child = res.ok;
+                return NodeifyResult_ok(head_idx);
+        }
+
+        // Failure case, reset nodes and bubble up
+        nodes->size -= 1;
+        return NodeifyResult_late(res);
 }
 
 NodeifyResult nodeify_assignment(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
@@ -57,41 +294,44 @@ NodeifyResult nodeify_assignment(const TokenSlice tokens, USize* index, SynNodeL
                 return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS);
         };
         if (!(tokens.tok_buf[*index] == TOK_WORD && tokens.tok_buf[*index+1] == TOK_EQUAL)) {
-                return NodeifyResult_err(NDFERR_FAILED);
+                return NodeifyResult_err(NDFERR_NO_MATCH);
         };
         // Success for the first two tokens, push head into the list and increment index
-        SynNode head = { .kind=SNK_ASSIGNMENT, .child=0, .next=0 };
+        SynNode head = { .kind=SNK_ASSIGNMENT, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
         LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
-        *index += 2;
         USize head_idx = nodes->size-1;
+        *index += 2;
         // Now nodeify the expression following
         NodeifyResult res = nodeify_expression(tokens, index, nodes);
-        if (res.is_err) {
-                // If it fails, unwind before propagating
-                *index -= 2;
-                nodes->size -= 1;
-                return res;
+        if (!res.is_err) {
+                // Connect head to the nodeified expression.
+                nodes->buf[head_idx].child = res.ok;
+                return NodeifyResult_ok(head_idx);
         }
-        // Connect head to the nodeified expression.
-        nodes->buf[head_idx].child = res.ok;
-        return NodeifyResult_ok(head_idx);
+        // If it fails, unwind before propagating
+        // The assumption is that failures fix nodes, so we just need to pop our node off head
+        // this assumption may be false
+        *index -= 2;
+        nodes->size -= 1;
+        return NodeifyResult_late(res);
 
 }
 
-NodeifyResult nodeify_program(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
-        SynNode head = { .kind=SNK_PROGRAM, .child=0, .next=0 };
+NodeifyResult nodeify_program(const TokenSlice tokens, SynNodeList* nodes) {
+        SynNode head = { .kind=SNK_PROGRAM, .child=USize_MAX, .next=USize_MAX, .token_index=0 };
         LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
+        USize index = 0;
         USize head_idx = nodes->size-1;
-        USize prev_idx = 0;
+        USize prev_idx = USize_MAX;
         while (true) {
-                NodeifyResult res = nodeify_assignment(tokens, index, nodes);
+                NodeifyResult res = nodeify_assignment(tokens, &index, nodes);
                 if (res.is_err) {
-                        if (res.err == NDFERR_NOT_ENOUGH_TOKENS || res.err == NDFERR_FAILED) {
+                        if (res.err == NDFERR_NO_MATCH) {
                                 break;
                         }
                         return res;
                 }
-                if (prev_idx == 0) {
+                if (prev_idx == USize_MAX) {
                         nodes->buf[head_idx].child = res.ok;
                 } else {
                         nodes->buf[prev_idx].next = res.ok;
@@ -107,13 +347,24 @@ NodeifyResult nodeify_program(const TokenSlice tokens, USize* index, SynNodeList
 *
 * Ok, let's write out the grammar.
 * PROGRAM: (ASSIGNMENT)+
-* ASSIGNMENT: WORD '=' EXPRESSION
-* EXPRESSION: VALUE, BLOCK
-* BLOCK: { ((EXPRESSION, ASSIGNMENT) SEP)* EXPRESSION }
-* VALUE: WORD CCALL, WORD RCALL, WORD CCALL RCALL
-* CCALL: '<'(NAME (SEP NAME)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)'>'
-* RCALL: '('NAME* ASSIGNMENT*')'
-* SEP: ',', '\n'
+* ASSIGNMENT: WORD '=' EXPRESSION;
+* EXPRESSION: VALUE, BLOCK, ASSIGNMENT
+* BLOCK: { (EXPRESSION (SEP EXPRESSION)* SEP?)? }
+* VALUE: WORD, WORD CCALL, WORD RCALL, WORD CCALL RCALL
+* CCALL: '<'(EXPRESSION (SEP EXPRESSION)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)'>'
+* RCALL: '('(EXPRESSION (SEP EXPRESSION)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)')'
+* SEP: ','
+*
+* If I want {a,b = (1,2), a} rn this will be turned into {a; b = (1,2); a}
+* Syntaxless destructuring is nice, but perhaps {(a,b) = (1,2)} is more appropriate?
+* Right now, this is still {(a; b) = (1; 2)} - gotta check for bracketing, but I think this is an issue of no literals.
+* Should tuples be <>? <3,"foo">? Let's ignore strings for now - they're weird - we only deal in integers
+* No, seriously speaking we want a grouping operator, like TypeMul<U1, I8><3U1, -4I8> - very noisy, but acceptable 
+* This makes destructuring actually look like TypeMul<U1, I8>(a, b) = my_tup_func() - not sure if I like "value holes"
+* but given we will support "type holes" it should be fine
+*
+* Note, assignments are expressions so I can say everything is an expression - the return value is void
+* This simplifies the parser somewhat
 *
 * Let's write some code and see how it fits.
 *

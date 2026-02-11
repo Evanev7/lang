@@ -6,8 +6,8 @@ typedef enum Token {
         TOK_WORD,
         TOK_SPACE,
         TOK_COMMA,
-        TOK_COLON,
         TOK_SEMICOLON,
+        TOK_COLON,
         TOK_EQUAL,
         TOK_PLUS,
         TOK_MINUS,
@@ -40,8 +40,8 @@ U1* Token_retrieve_debug_name(Token token) {
                 TOK_CASE_DBG_NAME(TOK_WORD);
                 TOK_CASE_DBG_NAME(TOK_SPACE);
                 TOK_CASE_DBG_NAME(TOK_COMMA);
-                TOK_CASE_DBG_NAME(TOK_COLON);
                 TOK_CASE_DBG_NAME(TOK_SEMICOLON);
+                TOK_CASE_DBG_NAME(TOK_COLON);
                 TOK_CASE_DBG_NAME(TOK_EQUAL);
                 TOK_CASE_DBG_NAME(TOK_PLUS);
                 TOK_CASE_DBG_NAME(TOK_MINUS);
@@ -60,44 +60,65 @@ U1* Token_retrieve_debug_name(Token token) {
                 TOK_CASE_DBG_NAME(TOK_CONTINUE);
                 TOK_CASE_DBG_NAME(TOK_IF);
         }
+        return U1_ptr_from_cstr("TOK_UNKNOWN");
 }
 
 typedef enum TokenizerError {
         TOKERR_NONE = 0,
         TOKERR_FULL_TOK_LIST,
-        TOKERR_ALGEBRA,
 } TokenizerError;
 
+#define TOKERR_CASE_DBG_NAME(tok) case tok: return U1_ptr_from_cstr(#tok);
+
+U1* TokenizerError_retrieve_debug_name(TokenizerError tok_err) {
+        switch(tok_err) {
+                TOKERR_CASE_DBG_NAME(TOKERR_NONE);
+                TOKERR_CASE_DBG_NAME(TOKERR_FULL_TOK_LIST);
+        };
+        return U1_ptr_from_cstr("TOKERR_UNKNOWN");
+}
+Void TokenizerError_pretty_print_debug(TokenizerError tok_err) {
+        printf("TokenizerError(%s)", TokenizerError_retrieve_debug_name(tok_err));
+}
 
 typedef struct TokenList {
         Token* tok_buf;
-        U4* idx_buf;
-        U4* size_buf;
-        U4 size;
-        U4 capacity;
+        USize* idx_buf;
+        USize* size_buf;
+        USize size;
+        USize capacity;
 } TokenList;
+
+TokenList TokenList_new(const USize capacity) {
+        return (TokenList) {
+                .capacity = capacity,
+                .size = 0,
+                .idx_buf = (USize*) malloc(capacity * sizeof(USize)),
+                .tok_buf = (Token*) malloc(capacity * sizeof(Token)),
+                .size_buf = (USize*) malloc(capacity * sizeof(USize)),
+        };
+}
 
 typedef struct TokenSlice {
         Token* tok_buf;
-        U4* idx_buf;
-        U4* size_buf;
-        U4 size;
+        USize* idx_buf;
+        USize* size_buf;
+        USize size;
 } TokenSlice;
 
-TokenList TokenList_new(const USize size) {
-        return (TokenList) {
-                .capacity = size,
-                .size = 0,
-                .idx_buf = (U4*) malloc(size * sizeof(U4)),
-                .tok_buf = (Token*) malloc(size * sizeof(Token)),
-                .size_buf = (U4*) malloc(size * sizeof(U4)),
+TokenSlice TokenSlice_from_list(const TokenList tokens) {
+        return (TokenSlice) {
+                .tok_buf = tokens.tok_buf,
+                .idx_buf = tokens.idx_buf,
+                .size_buf = tokens.size_buf,
+                .size = tokens.size
         };
 }
 
 Void TokenList_pretty_print_debug(const TokenList tokens) {
-        printf("TokenList(\n    size=%u,\n    capacity=%u,\n    tokens=[\n", tokens.size, tokens.capacity);
-        for (U4 i = 0; i < tokens.size; i+=1) {
-                printf("        (%4u, %4u): %s,\n", tokens.idx_buf[i], tokens.size_buf[i], U1_ptr_to_cstr(Token_retrieve_debug_name(tokens.tok_buf[i])));
+        printf("TokenList(\n    size=%lu,\n    capacity=%lu,\n    tokens=[\n", tokens.size, tokens.capacity);
+        for (USize i = 0; i < tokens.size; i+=1) {
+                printf("        (%4lu, %4lu): %s,\n", tokens.idx_buf[i], tokens.size_buf[i], U1_ptr_to_cstr(Token_retrieve_debug_name(tokens.tok_buf[i])));
         }
         printf("])\n");
 }
@@ -119,7 +140,7 @@ Token classify_word(const StringSlice word) {
         return TOK_WORD;
 }
 
-Bool is_whitespace(U1 character) {
+Bool U1_is_whitespace(U1 character) {
         return character == ' '
                     || character == '\n'
                     || character == '\r'
@@ -127,12 +148,15 @@ Bool is_whitespace(U1 character) {
 
 }
 
-Bool is_text(U1 character) {
+Bool U1_is_text(U1 character) {
         return character == '_'
                 || (character >= 'a' && character <= 'z')
                 || (character >= 'A' && character <= 'Z');
 }
 
+Bool Token_is_sep(Token tok) {
+        return tok == TOK_COMMA || tok == TOK_SEMICOLON;
+}
 
 TokenizerError TokenList_push(TokenList* tokens, Token tok, U4 idx, U4 size) {
         if (tokens->size >= tokens->capacity) {
@@ -155,17 +179,19 @@ TokenizerError tokenize(const StringSlice text, TokenList* tokens) {
         for (U4 i = 0; i < text.size; i+=1) {
                 tok_len += 1;
                 // if this is text and the next char is not text (1 char lookahead), push a WORD
-                if (is_text(text.buf[i]) && (i+1 >= text.size || !is_text(text.buf[i+1]))) {
+                if (U1_is_text(text.buf[i]) && (i+1 >= text.size || !U1_is_text(text.buf[i+1]))) {
                         // just checking my algebra:
                         // when tokenizing `loop`
                         // tok_len is 4, i is 3. i + 1 >= text.size, so we hit this branch
                         // we classify_word on (StringSlice) { .size=4, .buf=&text.buf[3+1-4]}
                         Token tok = classify_word((StringSlice) {.size=tok_len, .buf=&text.buf[i+1-tok_len] });
-                        TOK_PUSH(tok, i);
+                        TOK_PUSH(tok, i+1-tok_len);
                         continue;
                 } 
                 // if this is whitespace and next isn't, push a SPACE
-                if (is_whitespace(text.buf[i]) && (i+1 >= text.size || !is_whitespace(text.buf[i+1]))) {
+                if (U1_is_whitespace(text.buf[i]) && (i+1 >= text.size || !U1_is_whitespace(text.buf[i+1]))) {
+                        // if we aren't pushing a token we should reset the tok_len
+                        tok_len = 0;
                         //TOK_PUSH(TOK_SPACE, i);
                         continue;
                 }

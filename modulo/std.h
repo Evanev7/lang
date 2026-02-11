@@ -38,6 +38,7 @@
 #define UPtr uintptr_t 
 #define ISize intptr_t 
 #define USize size_t 
+#define USize_MAX SIZE_MAX
 
 #define Bool _Bool
 #define true 1
