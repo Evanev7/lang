@@ -78,7 +78,7 @@ U1* TokenizerError_retrieve_debug_name(TokenizerError tok_err) {
         return U1_ptr_from_cstr("TOKERR_UNKNOWN");
 }
 Void TokenizerError_pretty_print_debug(TokenizerError tok_err) {
-        printf("TokenizerError(%s)", TokenizerError_retrieve_debug_name(tok_err));
+        printf("TokenizerError(%s)\n", TokenizerError_retrieve_debug_name(tok_err));
 }
 
 typedef struct TokenList {

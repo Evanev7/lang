@@ -44,7 +44,7 @@ U1* NodeifyError_retrieve_debug_name(NodeifyError n_err) {
         return U1_ptr_from_cstr("NDFERR_UNKNOWN");
 }
 Void NodeifyError_pretty_print_debug(NodeifyError n_err) {
-        printf("NodeifyError(%s)", NodeifyError_retrieve_debug_name(n_err));
+        printf("NodeifyError(%s)\n", NodeifyError_retrieve_debug_name(n_err));
 }
 typedef struct SynNode { SynNodeKind kind; USize child; USize next; USize token_index; } SynNode;
 typedef struct SynNodeList { SynNode* buf; USize size; USize capacity; } SynNodeList;
@@ -102,6 +102,7 @@ NodeifyResult nodeify_arglist(const TokenSlice tokens, USize* index, SynNodeList
         LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
         USize head_idx = nodes->size-1;
         while (1) {
+                exit(1);
                 // (EXPR (SEP EXPR)*)
         }
 
@@ -263,6 +264,12 @@ NodeifyResult nodeify_expression(const TokenSlice tokens, USize* index, SynNodeL
         USize head_idx = nodes->size-1;
         NodeifyResult res;
 
+        res = nodeify_assignment(tokens, index, nodes);
+        if (!res.is_err) {
+                nodes->buf[head_idx].child = res.ok;
+                return NodeifyResult_ok(head_idx);
+        }
+        if (res.err != NDFERR_NO_MATCH) { nodes->size -= 1; return res; }
         res = nodeify_value(tokens, index, nodes);
         if (!res.is_err) {
                 nodes->buf[head_idx].child = res.ok;
@@ -275,13 +282,7 @@ NodeifyResult nodeify_expression(const TokenSlice tokens, USize* index, SynNodeL
                 nodes->buf[head_idx].child = res.ok;
                 return NodeifyResult_ok(head_idx);
         }
-        if (res.err != NDFERR_NO_MATCH) { nodes->size -= 1; return res; }
 
-        res = nodeify_assignment(tokens, index, nodes);
-        if (!res.is_err) {
-                nodes->buf[head_idx].child = res.ok;
-                return NodeifyResult_ok(head_idx);
-        }
 
         // Failure case, reset nodes and bubble up
         nodes->size -= 1;
@@ -296,6 +297,7 @@ NodeifyResult nodeify_assignment(const TokenSlice tokens, USize* index, SynNodeL
         if (!(tokens.tok_buf[*index] == TOK_WORD && tokens.tok_buf[*index+1] == TOK_EQUAL)) {
                 return NodeifyResult_err(NDFERR_NO_MATCH);
         };
+        NODEIFY_SNAPSHOT();
         // Success for the first two tokens, push head into the list and increment index
         SynNode head = { .kind=SNK_ASSIGNMENT, .child=USize_MAX, .next=USize_MAX, .token_index=*index };
         LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NodeifyResult_err(NDFERR_NOT_ENOUGH_NODES));
@@ -303,17 +305,14 @@ NodeifyResult nodeify_assignment(const TokenSlice tokens, USize* index, SynNodeL
         *index += 2;
         // Now nodeify the expression following
         NodeifyResult res = nodeify_expression(tokens, index, nodes);
-        if (!res.is_err) {
-                // Connect head to the nodeified expression.
-                nodes->buf[head_idx].child = res.ok;
-                return NodeifyResult_ok(head_idx);
+        if (res.is_err) {
+                NODEIFY_REWIND();
+                return NodeifyResult_late(res);
         }
-        // If it fails, unwind before propagating
-        // The assumption is that failures fix nodes, so we just need to pop our node off head
-        // this assumption may be false
-        *index -= 2;
-        nodes->size -= 1;
-        return NodeifyResult_late(res);
+        // Connect head to the nodeified expression.
+        nodes->buf[head_idx].child = res.ok;
+
+        return NodeifyResult_ok(head_idx);
 
 }
 
@@ -323,14 +322,17 @@ NodeifyResult nodeify_program(const TokenSlice tokens, SynNodeList* nodes) {
         USize index = 0;
         USize head_idx = nodes->size-1;
         USize prev_idx = USize_MAX;
-        while (true) {
+        while (index < tokens.size - 1) {
                 NodeifyResult res = nodeify_assignment(tokens, &index, nodes);
                 if (res.is_err) {
-                        if (res.err == NDFERR_NO_MATCH) {
-                                break;
-                        }
                         return res;
                 }
+                // consume a semicolon after assignment
+                if (tokens.size < index+1) { return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS); }
+                if (!Token_is_sep(tokens.tok_buf[index])) {
+                        return NodeifyResult_err(NDFERR_SYNTAX);
+                }
+                index += 1;
                 if (prev_idx == USize_MAX) {
                         nodes->buf[head_idx].child = res.ok;
                 } else {
@@ -346,14 +348,14 @@ NodeifyResult nodeify_program(const TokenSlice tokens, SynNodeList* nodes) {
 /*
 *
 * Ok, let's write out the grammar.
-* PROGRAM: (ASSIGNMENT)+
-* ASSIGNMENT: WORD '=' EXPRESSION;
+* PROGRAM: (ASSIGNMENT SEP)*
+* ASSIGNMENT: WORD '=' EXPRESSION SEP
 * EXPRESSION: VALUE, BLOCK, ASSIGNMENT
 * BLOCK: { (EXPRESSION (SEP EXPRESSION)* SEP?)? }
 * VALUE: WORD, WORD CCALL, WORD RCALL, WORD CCALL RCALL
 * CCALL: '<'(EXPRESSION (SEP EXPRESSION)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)'>'
 * RCALL: '('(EXPRESSION (SEP EXPRESSION)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)')'
-* SEP: ','
+* SEP: ',' | ';'
 *
 * If I want {a,b = (1,2), a} rn this will be turned into {a; b = (1,2); a}
 * Syntaxless destructuring is nice, but perhaps {(a,b) = (1,2)} is more appropriate?
