@@ -29,6 +29,7 @@
           clippy
           gcc
           python3
+          gdb
         ];
 
         RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";

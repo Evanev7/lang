@@ -98,6 +98,13 @@ TokenList TokenList_new(const USize capacity) {
                 .size_buf = (USize*) malloc(capacity * sizeof(USize)),
         };
 }
+void TokenList_free(TokenList* toks) {
+        free(toks->tok_buf);
+        free(toks->idx_buf);
+        free(toks->size_buf);
+        toks->size=0;
+        toks->capacity=0;
+}
 
 typedef struct TokenSlice {
         Token* tok_buf;
@@ -174,7 +181,6 @@ TokenizerError TokenList_push(TokenList* tokens, Token tok, U4 idx, U4 size) {
 #define TOK_CASE(ch, tok) case ch: TOK_PUSH(tok,i); continue;
 
 TokenizerError tokenize(const StringSlice text, TokenList* tokens) {
-        U4 tok_idx = 0;
         U4 tok_len = 0;
         for (U4 i = 0; i < text.size; i+=1) {
                 tok_len += 1;

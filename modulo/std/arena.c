@@ -39,7 +39,7 @@ ArenaAllocResult Arena_alloc(Arena* arena, USize size, USize align) {
 
 Ptr Arena_get(const Arena arena, ArenaHandle handle) {
         return &arena.buf[handle._idx];
-};
+}
 
 
 USize align_up(USize size, USize align) {

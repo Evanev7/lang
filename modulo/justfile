@@ -1,2 +1,2 @@
 main:
-        gcc main.c std/mod.c -o main && { ./main && rm ./main; } || rm ./main
+        gcc main.c std/mod.c -o main -Werror -g -fsanitize=address,undefined && { ./main && rm ./main; } || rm ./main
