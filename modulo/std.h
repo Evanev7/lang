@@ -82,7 +82,8 @@ Void String_extend(String* str_base, const String str_add);
 Bool StringSlice_equal(const StringSlice a, const StringSlice b);
 Void StringSlice_print(const StringSlice str);
 Void StringSlice_print_debug(const StringSlice str);
-#define StringSlice_from_cstr(cstr) (StringSlice) { .size=sizeof(cstr)-1, .buf=(U1*)(unsigned char*)cstr }
+#define StringSlice_INIT_CSTR(cstr) { .size=sizeof(cstr)-1, .buf=(U1*)(unsigned char*)cstr }
+#define StringSlice_from_cstr(cstr) (StringSlice) StringSlice_INIT_CSTR(cstr)
 
 typedef struct Arena {
         USize capacity;

@@ -27,10 +27,10 @@ typedef enum Token {
         TOK_IF,
 } Token;
 
-StringSlice KW_IF = StringSlice_from_cstr("if");
-StringSlice KW_LOOP = StringSlice_from_cstr("loop");
-StringSlice KW_BREAK = StringSlice_from_cstr("break");
-StringSlice KW_CONTINUE = StringSlice_from_cstr("continue");
+StringSlice KW_IF = StringSlice_INIT_CSTR("if");
+StringSlice KW_LOOP = StringSlice_INIT_CSTR("loop");
+StringSlice KW_BREAK = StringSlice_INIT_CSTR("break");
+StringSlice KW_CONTINUE = StringSlice_INIT_CSTR("continue");
 
 #define TOK_CASE_DBG_NAME(tok) case tok: return U1_ptr_from_cstr(#tok);
 
