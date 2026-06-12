@@ -33,16 +33,23 @@ char* String_to_cstr(String* str) {
         return U1_ptr_to_cstr(str->buf);
 }
 
+Void String_push(String* str_base, const char c) {
+        if (str_base->capacity < str_base->size + 1) {
+                return;
+        }
+        str_base->buf[str_base->size] = c;
+        str_base->size += 1;
+}
+
 Void String_extend(String* str_base, const String str_add) {
         if (str_base->capacity < str_base->size + str_add.size) {
                 return;
         }
-        str_base->size += str_add.size;
         // memcpy is for chumps
         for (int i = 0; i < str_add.size; i++) {
-                *(str_base->buf + i) = *(str_add.buf + i);
+                str_base->buf[i+str_base->size] = str_add.buf[i];
         }
-        return;
+        str_base->size += str_add.size;
 }
 
 Void String_print(const String str) {
@@ -55,6 +62,10 @@ Void String_print_debug(const String str) {
                str.capacity,
                str.buf
         );
+}
+
+StringSlice String_to_slice(const String str) {
+        return (StringSlice) { .buf=str.buf, .size=str.size };
 }
 
 Void StringSlice_print(const StringSlice str) {
@@ -80,7 +91,6 @@ Bool StringSlice_equal(const StringSlice a, const StringSlice b) {
         }
         return true;
 }
-
 
 /*
 StringSlice StringSlice_from_cstr(char* str) {

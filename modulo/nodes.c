@@ -7,8 +7,7 @@ typedef enum SynNodeKind {
         SNK_EXPRESSION,
         SNK_VALUE,
         SNK_BLOCK,
-        SNK_RCALL,
-        SNK_CCALL,
+        SNK_CALL,
         SNK_ARGS,
 } SynNodeKind;
 #define SNK_CASE_DBG_NAME(snk) case snk: return U1_ptr_from_cstr(#snk);
@@ -20,8 +19,7 @@ U1* SynNodeKind_retrieve_debug_name(SynNodeKind snk) {
                 SNK_CASE_DBG_NAME(SNK_EXPRESSION);
                 SNK_CASE_DBG_NAME(SNK_VALUE);
                 SNK_CASE_DBG_NAME(SNK_BLOCK);
-                SNK_CASE_DBG_NAME(SNK_RCALL);
-                SNK_CASE_DBG_NAME(SNK_CCALL);
+                SNK_CASE_DBG_NAME(SNK_CALL);
                 SNK_CASE_DBG_NAME(SNK_ARGS);
         }
         return U1_ptr_from_cstr("SNK_UNKNOWN");
@@ -104,6 +102,10 @@ Void SynNodeList_pretty_print_tree_at(const SynNodeList nodes, USize index, USiz
 Void SynNodeList_pretty_print_tree(const SynNodeList nodes) {
         SynNodeList_pretty_print_tree_at(nodes, 0, 0);
 }
+typedef struct SynNodeSlice { SynNode* buf; USize size; } SynNodeSlice;
+SynNodeSlice SynNodeSlice_from_list(const SynNodeList nodes) {
+        return (SynNodeSlice) { .buf=nodes.buf, .size=nodes.size };
+}
 
 typedef struct NodeifyResult { 
         Bool is_err;
@@ -136,7 +138,7 @@ NodeifyResult nodeify_expression(const TokenSlice tokens, USize* index, SynNodeL
 #define NODEIFY_REWIND() *index=__start_index; nodes->size=__start_nodes
 #define NODEIFY_FIRST_PEEK(tok) do { if (tokens.size < *index + 1) { return NodeifyResult_err(NDFERR_NOT_ENOUGH_TOKENS, __LINE__); } if (tokens.tok_buf[*index] != (tok)) { return NodeifyResult_err(NDFERR_NO_MATCH, __LINE__); } } while (0)
 
-NodeifyResult nodeify_arglist(const TokenSlice tokens, USize* index, SynNodeList* nodes, Bool is_const) {
+NodeifyResult nodeify_arglist(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
         NODEIFY_SNAPSHOT();
         SynNode head = SynNode_new(SNK_ARGS, *index);
         LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NDFERR_BAIL(NDFERR_NOT_ENOUGH_NODES));
@@ -145,53 +147,53 @@ NodeifyResult nodeify_arglist(const TokenSlice tokens, USize* index, SynNodeList
         while (1) {
                 // check for close token
                 if (tokens.size < *index+1) { NODEIFY_REWIND(); return NDFERR_BAIL(NDFERR_NOT_ENOUGH_TOKENS); }
-                if (tokens.tok_buf[*index] == (is_const ? TOK_RANGLE : TOK_RPAREN)) {
+                if (tokens.tok_buf[*index] == TOK_RPAREN) {
                         return NodeifyResult_ok(head_idx);
                 }
-                // check for expression
-                NodeifyResult res = nodeify_expression(tokens, index, nodes);
+                // consume expression
+                NodeifyResult res = nodeify_assignment(tokens, index, nodes, true);
                 if (res.is_err) {
                         if (res.err.kind != NDFERR_NO_MATCH) { NODEIFY_REWIND(); return NodeifyResult_late(res); }
-                        res = nodeify_assignment(tokens, index, nodes, true);
+                        res = nodeify_expression(tokens, index, nodes);
                         if (res.is_err) { NODEIFY_REWIND(); return NodeifyResult_late(res); }
                 }
 
                 prev_idx = SynNodeList_append_child(nodes, head_idx, prev_idx, res.ok);
                 // check for close token
                 if (tokens.size < *index+1) { NODEIFY_REWIND(); return NDFERR_BAIL(NDFERR_NOT_ENOUGH_TOKENS); }
-                if (tokens.tok_buf[*index] == (is_const ? TOK_RANGLE : TOK_RPAREN)) {
+                if (tokens.tok_buf[*index] == TOK_RPAREN) {
                         return NodeifyResult_ok(head_idx);
                 }
-                // consume for seperator token
+                // not closed, consume seperator token
                 if (tokens.size < *index+1) { NODEIFY_REWIND(); return NDFERR_BAIL(NDFERR_NOT_ENOUGH_TOKENS); }
                 if (!Token_is_sep(tokens.tok_buf[*index])) { NODEIFY_REWIND(); return NDFERR_BAIL(NDFERR_SYNTAX); }
                 *index += 1;
         }
 }
-NodeifyResult nodeify_call(const TokenSlice tokens, USize* index, SynNodeList* nodes, Bool is_const) {
-        NODEIFY_FIRST_PEEK(is_const ? TOK_LANGLE : TOK_LPAREN);
+NodeifyResult nodeify_call(const TokenSlice tokens, USize* index, SynNodeList* nodes) {
+        NODEIFY_FIRST_PEEK(TOK_LPAREN);
         NODEIFY_SNAPSHOT();
-        SynNode head = SynNode_new(is_const ? SNK_CCALL : SNK_RCALL, *index);
+        SynNode head = SynNode_new(SNK_CALL, *index);
         LIST_TRY_PUSH_WITH_EARLY_RETURN(*nodes, head, NDFERR_BAIL(NDFERR_NOT_ENOUGH_NODES));
         USize head_idx = nodes->size-1;
         *index += 1;
         if (tokens.size < *index+1) { NODEIFY_REWIND(); return NDFERR_BAIL(NDFERR_NOT_ENOUGH_TOKENS); }
-        if (tokens.tok_buf[*index] == (is_const ? TOK_RANGLE : TOK_RPAREN)) { *index +=1; return NodeifyResult_ok(head_idx); }
-        NodeifyResult res = nodeify_arglist(tokens, index, nodes, is_const);
+        if (tokens.tok_buf[*index] == TOK_RPAREN) { *index +=1; return NodeifyResult_ok(head_idx); }
+        NodeifyResult res = nodeify_arglist(tokens, index, nodes);
         if (res.is_err) {
                 NODEIFY_REWIND();
                 return NodeifyResult_late(res);
         }
         nodes->buf[head_idx].child = res.ok;
         if (tokens.size < *index+1) { NODEIFY_REWIND(); return NDFERR_BAIL(NDFERR_NOT_ENOUGH_TOKENS); }
-        if (tokens.tok_buf[*index] != (is_const ? TOK_RANGLE : TOK_RPAREN)) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_SYNTAX, __LINE__); }
+        if (tokens.tok_buf[*index] != TOK_RPAREN) { NODEIFY_REWIND(); return NodeifyResult_err(NDFERR_SYNTAX, __LINE__); }
         *index +=1; 
         return NodeifyResult_ok(head_idx);
 }
 
 /// So currently, we don't handle literals,
 /// and we don't handle some kind of magic partial application api
-/// we just handle WORD CCALL* RCALL*
+/// we just handle WORD CALL*
 /// Ideally, foo<x><y> = foo<x, y>, but that's a problem for later.
 /// Realistically for now, if you want foo<a><b> = foo<a, b>, define foo2<b> = foo<a, b>
 /// Currying is weird man, it just magically stores data in the land of partial application
@@ -205,13 +207,11 @@ NodeifyResult nodeify_value(const TokenSlice tokens, USize* index, SynNodeList* 
         USize prev_idx = USize_MAX;
         // consume a word
         *index += 1;
-        Bool is_const = true;
         while (1) {
-                NodeifyResult res = nodeify_call(tokens, index, nodes, is_const);
+                NodeifyResult res = nodeify_call(tokens, index, nodes);
                 if (res.is_err) { 
                         if (res.err.kind != NDFERR_NO_MATCH) { NODEIFY_REWIND(); return res; } 
-                        else if (is_const) { is_const = false; continue; }
-                        else break;
+                        break;
                 } else {
                         prev_idx = SynNodeList_append_child(nodes, head_idx, prev_idx, res.ok);
                 }
@@ -377,12 +377,15 @@ NodeifyResult nodeify_program(const TokenSlice tokens, SynNodeList* nodes) {
 * Ok, let's write out the grammar.
 * PROGRAM: (ASSIGNMENT SEP)*
 * ASSIGNMENT: WORD '=' EXPRESSION SEP
-* EXPRESSION: VALUE, BLOCK, ASSIGNMENT
-* BLOCK: { (EXPRESSION (SEP EXPRESSION)* SEP?)? }
-* VALUE: WORD, WORD CCALL, WORD RCALL, WORD CCALL RCALL
-* CCALL: '<'(EXPRESSION (SEP EXPRESSION)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)'>'
-* RCALL: '('(EXPRESSION (SEP EXPRESSION)*) SEP? (ASSIGNMENT? (SEP ASSIGNMENT)*)')'
+* EXPRESSION: VALUE, BLOCK, ASSIGNMENT, INFIX
+* INFIX: EXPRESSION OP EXPRESSION
+* OP: '+' | '-' | '<' | '>' | '*' | '**' | '/' | '//'
+* BLOCK: '{' (EXPRESSION (SEP EXPRESSION)*)? '}'
+* VALUE: WORD (CCALL|RCALL)* 
+* CCALL: '{'(EXPRESSION|ASSIGNMENT) (SEP EXPRESSION|ASSIGNMENT)*)'}'
+* RCALL: '('(EXPRESSION|ASSIGNMENT) (SEP EXPRESSION|ASSIGNMENT)*')'
 * SEP: ',' | ';'
+*
 *
 * If I want {a,b = (1,2), a} rn this will be turned into {a; b = (1,2); a}
 * Syntaxless destructuring is nice, but perhaps {(a,b) = (1,2)} is more appropriate?
@@ -397,18 +400,18 @@ NodeifyResult nodeify_program(const TokenSlice tokens, SynNodeList* nodes) {
 *
 * Let's write some code and see how it fits.
 *
-* main = Fn<
-*       args = Args<foo = I4
-*       bar = I8, baz = Str>
+* main = Fn {
+*       args = Args {foo = I4
+*       bar = I8, baz = Str}
 *       ret = I4
-*       body = { two = 2U4; four = 4U4; six = two.add(four); six }
-* >
+*       body = { two = 2U4; four = 4U4; six = two.add(four); eight=two.add(six); six }
+* }
 *
-* Str = struct<
+* Str = struct{
 *       size = USize
 *       capacity = USize
-*       buf = Ptr<U1>
-* >
-* Ptr = Fn<Type, body = { VoidPtr }>
+*       buf = Ptr{U1}
+* }
+* Ptr = Fn{Type, body = { VoidPtr }:
 *
 */
