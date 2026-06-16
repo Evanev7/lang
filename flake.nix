@@ -30,6 +30,8 @@
           gcc
           python3
           gdb
+          zig
+          zls
         ];
 
         RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";

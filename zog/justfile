@@ -1,0 +1,5 @@
+main:
+        gcc main.c std/mod.c -o main -Werror -Wall -Wpedantic -g -fsanitize=address,undefined && { ./main && rm ./main; } || rm ./main
+debug:
+        gcc main.c std/mod.c -o main -Werror -Wall -Wpedantic -g -fsanitize=address,undefined && { gdb ./main && rm ./main; } || rm ./main
+
