@@ -83,19 +83,21 @@ Void TokenizerError_pretty_print_debug(TokenizerError tok_err) {
 
 typedef struct TokenList {
         Token* tok_buf;
-        USize* idx_buf;
-        USize* size_buf;
-        USize size;
-        USize capacity;
+        U4* idx_buf;
+        U1* size_buf;
+        // should take readonly ownership of the code here
+        StringSlice code;
+        U4 size;
+        U4 capacity;
 } TokenList;
 
-TokenList TokenList_new(const USize capacity) {
+TokenList TokenList_new(const U4 capacity) {
         return (TokenList) {
                 .capacity = capacity,
                 .size = 0,
-                .idx_buf = (USize*) malloc(capacity * sizeof(USize)),
+                .idx_buf = (U4*) malloc(capacity * sizeof(U4)),
                 .tok_buf = (Token*) malloc(capacity * sizeof(Token)),
-                .size_buf = (USize*) malloc(capacity * sizeof(USize)),
+                .size_buf = (U1*) malloc(capacity * sizeof(U1)),
         };
 }
 void TokenList_free(TokenList* toks) {
@@ -108,9 +110,9 @@ void TokenList_free(TokenList* toks) {
 
 typedef struct TokenSlice {
         Token* tok_buf;
-        USize* idx_buf;
-        USize* size_buf;
-        USize size;
+        U4* idx_buf;
+        U1* size_buf;
+        U4 size;
 } TokenSlice;
 
 TokenSlice TokenSlice_from_list(const TokenList tokens) {
@@ -123,9 +125,9 @@ TokenSlice TokenSlice_from_list(const TokenList tokens) {
 }
 
 Void TokenList_pretty_print_debug(const TokenList tokens) {
-        printf("TokenList(\n    size=%lu,\n    capacity=%lu,\n    tokens=[\n", tokens.size, tokens.capacity);
-        for (USize i = 0; i < tokens.size; i+=1) {
-                printf("        (%4lu, %4lu): %s,\n", tokens.idx_buf[i], tokens.size_buf[i], U1_ptr_to_cstr(Token_retrieve_debug_name(tokens.tok_buf[i])));
+        printf("TokenList(\n    size=%u,\n    capacity=%u,\n    tokens=[\n", tokens.size, tokens.capacity);
+        for (U4 i = 0; i < tokens.size; i+=1) {
+                printf("        (%4u, %4u): %s,\n", tokens.idx_buf[i], tokens.size_buf[i], U1_ptr_to_cstr(Token_retrieve_debug_name(tokens.tok_buf[i])));
         }
         printf("])\n");
 }
@@ -161,15 +163,11 @@ Bool U1_is_text(U1 character) {
                 || (character >= 'A' && character <= 'Z');
 }
 
-Bool Token_is_sep(Token tok) {
-        return tok == TOK_COMMA || tok == TOK_SEMICOLON;
-}
-
 TokenizerError TokenList_push(TokenList* tokens, Token tok, U4 idx, U4 size) {
         if (tokens->size >= tokens->capacity) {
                 return TOKERR_FULL_TOK_LIST;
         }
-        USize i = tokens->size;
+        U4 i = tokens->size;
         tokens->tok_buf[i] = tok;
         tokens->idx_buf[i] = idx;
         tokens->size_buf[i] = size;

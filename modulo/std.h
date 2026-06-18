@@ -22,18 +22,31 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <assert.h>
 
 #define Void void
 
 #define I1 int8_t 
+#define I1_MAX INT8_MAX
+#define I1_MIN INT8_MIN
 #define I2 int16_t 
+#define I2_MAX INT16_MAX
+#define I2_MIN INT16_MIN
 #define I4 int32_t 
+#define I4_MAX INT32_MAX
+#define I4_MIN INT32_MIN
 #define I8 int64_t 
+#define I8_MAX INT64_MAX
+#define I8_MIN INT64_MIN
 
 #define U1 uint8_t
+#define U1_MAX UINT8_MAX
 #define U2 uint16_t 
+#define U2_MAX UINT16_MAX
 #define U4 uint32_t
+#define U4_MAX UINT32_MAX
 #define U8 uint64_t 
+#define U8_MAX UINT64_MAX
 
 #define UPtr uintptr_t 
 #define ISize intptr_t 
@@ -86,6 +99,7 @@ Void StringSlice_print(const StringSlice str);
 Void StringSlice_print_debug(const StringSlice str);
 #define StringSlice_INIT_CSTR(cstr) { .size=sizeof(cstr)-1, .buf=(U1*)(unsigned char*)cstr }
 #define StringSlice_from_cstr(cstr) (StringSlice) StringSlice_INIT_CSTR(cstr)
+#define _assert(expr, msg) do { printf("\nAssertion fail:\n" msg "\n"); assert(expr); } while (0)
 
 typedef struct Arena {
         USize capacity;
